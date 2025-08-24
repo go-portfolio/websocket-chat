@@ -35,7 +35,7 @@ func NewStore() *Store {
 // 4. Проверяет, что пользователь с таким именем ещё не существует.
 // 5. Хэширует пароль с помощью bcrypt и сохраняет его в Store.
 // Возвращает ошибку, если имя занято, некорректное или при проблемах с хэшированием.
-func (s *Store) Register(username, password string) error {
+func (store *Store) Register(username, password string) error {
 	// Убираем пробелы в начале/конце
 	username = strings.TrimSpace(username)
 
@@ -50,11 +50,11 @@ func (s *Store) Register(username, password string) error {
 	}
 
 	// Блокируем Store для записи
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	store.mu.Lock()
+	defer store.mu.Unlock()
 
 	// Проверяем, что пользователя с таким именем ещё нет
-	if _, exists := s.data[username]; exists {
+	if _, exists := store.data[username]; exists {
 		return fmt.Errorf("username already exists")
 	}
 
@@ -65,7 +65,7 @@ func (s *Store) Register(username, password string) error {
 	}
 
 	// Сохраняем хэш в хранилище
-	s.data[username] = string(hash)
+	store.data[username] = string(hash)
 	return nil
 }
 
@@ -74,11 +74,11 @@ func (s *Store) Register(username, password string) error {
 // 2. Если не найден — возвращает false.
 // 3. Сравнивает переданный пароль с сохранённым bcrypt-хэшем.
 // Возвращает true, если пароль совпадает, иначе false.
-func (s *Store) Authenticate(username, password string) bool {
+func (store *Store) Authenticate(username, password string) bool {
 	// Блокируем Store для чтения (несколько горутин могут читать параллельно)
-	s.mu.RLock()
-	hash, ok := s.data[username]
-	s.mu.RUnlock()
+	store.mu.RLock()
+	hash, ok := store.data[username]
+	store.mu.RUnlock()
 
 	// Если пользователя нет
 	if !ok {

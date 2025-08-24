@@ -151,8 +151,8 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// ChatSocketHandler Обработка сообщений сокета
-func ChatSocketHandler(w http.ResponseWriter, r *http.Request) {
+// ChatConnectionHandler Обработка сообщений сокета
+func ChatConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	// Получаем username из контекста
 	username, _ := r.Context().Value(ctxUserKey).(string)
 	if username == "" {
@@ -187,7 +187,7 @@ func ChatSocketHandler(w http.ResponseWriter, r *http.Request) {
 	room.Mu.Unlock()
 
 	// Регистрируем клиента в Hub
-	ChatHub.Register <- client
+	ChatHub.RegisterCh <- client
 
 	// Запускаем горутины для чтения и записи
 	go client.WriteSocket()

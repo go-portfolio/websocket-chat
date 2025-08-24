@@ -8,11 +8,12 @@ import (
 
 // ChatMessage представляет одно сообщение в чате
 type ChatMessage struct {
-	Type      string `json:"type"`      // Тип сообщения: "system" или "message"
+	Type      string `json:"type"`      // Тип сообщения: "system" или "message" или "private"
 	From      string `json:"from"`      // Отправитель: имя пользователя или "system"
 	Text      string `json:"text"`      // Текст сообщения
 	Timestamp int64  `json:"timestamp"` // Временная метка Unix
 	Room      string `join:"room"`
+	Users      map[string]*Client // 🔑 username → client
 }
 
 type Room struct {
@@ -27,8 +28,8 @@ type Room struct {
 type Hub struct {
 	Clients    map[*Client]bool // Все активные клиенты
 	Broadcast  chan ChatMessage // Канал для отправки сообщений всем клиентам
-	Register   chan *Client     // Канал для регистрации нового клиента
-	unregister chan *Client     // Канал для удаления клиента
+	RegisterCh   chan *Client     // Канал для регистрации нового клиента
+	unregisterCh chan *Client     // Канал для удаления клиента
 	Rooms      map[string]*Room
 	mu         sync.RWMutex // Мьютекс для защиты данных от гонок
 
@@ -42,8 +43,8 @@ func NewHub() *Hub {
 		Clients:    make(map[*Client]bool),
 		Rooms:      make(map[string]*Room),
 		Broadcast:  make(chan ChatMessage, 128), // Буфер канала для сообщений
-		Register:   make(chan *Client),
-		unregister: make(chan *Client),
+		RegisterCh:   make(chan *Client),
+		unregisterCh: make(chan *Client),
 		history:    make([]ChatMessage, 0, 50), // Начальная емкость истории
 		maxHistory: 50,                         // Максимум последних сообщений
 	}
@@ -51,69 +52,69 @@ func NewHub() *Hub {
 
 // Run запускает главный цикл Hub, который обрабатывает регистрацию,
 // удаление клиентов и рассылку сообщений
-func (h *Hub) Run() {
+func (chatHub *Hub) Run() {
 	for {
 		select {
 		// Новый клиент подключился
-		case c := <-h.Register:
-			h.mu.Lock()
-			h.Clients[c] = true
-			h.mu.Unlock()
+		case client := <-chatHub.RegisterCh:
+			chatHub.mu.Lock()
+			chatHub.Clients[client] = true
+			chatHub.mu.Unlock()
 
-			room := h.GetRoom(c.Room.Name)
+			room := chatHub.GetRoom(client.Room.Name)
 
 			// Отправляем историю комнаты новому клиенту
 			room.Mu.RLock()
 			// Отправляем историю сообщений новому клиенту
-			for _, m := range room.History {
-				c.Send <- m
+			for _, msg := range room.History {
+				client.Send <- msg
 			}
 			room.Mu.RUnlock()
 
 			room.Mu.Lock()
-			room.Clients[c] = true
+			room.Clients[client] = true
 			room.Mu.Unlock()
 
 			// Сообщаем остальным, что клиент присоединился
 			room.Broadcast <- ChatMessage{
 				Type:      "system",
-				From:      c.Username,
+				From:      client.Username,
 				Room:      room.Name,
 				Text:      fmt.Sprintf("присоединился к комнате %s", room.Name),
 				Timestamp: time.Now().Unix(),
 			}
 
 		// Клиент отключился
-		case c := <-h.unregister:
-			h.mu.Lock()
-			if _, ok := h.Clients[c]; ok {
-				delete(h.Clients, c)
-				close(c.CloseCh) // Закрываем канал клиента
+		case client := <-chatHub.unregisterCh:
+			chatHub.mu.Lock()
+			if _, ok := chatHub.Clients[client]; ok {
+				delete(chatHub.Clients, client)
+				close(client.CloseCh) // Закрываем канал клиента
 			}
-			h.mu.Unlock()
+			chatHub.mu.Unlock()
 
-			room := h.GetRoom(c.Room.Name)
+			room := chatHub.GetRoom(client.Room.Name)
 
 			room.Mu.Lock()
-			delete(room.Clients, c) // удаляем клиента из комнаты
+			delete(room.Clients, client) // удаляем клиента из комнаты
 			room.Mu.Unlock()
 
 			// Сообщаем остальным, что клиент вышел
 			room.Broadcast <- ChatMessage{
 				Type:      "system",
-				From:      c.Username,
+				From:      client.Username,
 				Room:      room.Name,
 				Text:      fmt.Sprintf("покинул комнату %s", room.Name),
 				Timestamp: time.Now().Unix(),
 			}
 
 		// Получено новое сообщение для рассылки
-		case msg := <-h.Broadcast:
-			h.mu.Lock()	
-			if room, ok := h.Rooms[msg.Room]; ok {
+		case msg := <-chatHub.Broadcast:
+			chatHub.mu.Lock()	
+			if room, ok := chatHub.Rooms[msg.Room]; ok {
 				room.Broadcast <- msg
 			}
-			h.mu.Unlock()
+			chatHub.mu.Unlock()
 		}
 	}
 }
