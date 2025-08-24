@@ -8,6 +8,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Credentials — структура для логина/регистрации
+type Credentials struct {
+    Username string `json:"username"`
+    Password string `json:"password"`
+}
+
+
 // Store — простое in-memory хранилище пользователей.
 // Использует карту username -> passwordHash и мьютекс для безопасного доступа из разных горутин.
 // ⚠️ В реальных приложениях вместо этого лучше использовать полноценную базу данных (Postgres/MySQL).

@@ -166,11 +166,11 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Создаем клиента
 	client := &chat.Client{
-		hub:      ChatHub,
-		conn:     conn,
-		send:     make(chan chat.ChatMessage, 16),
-		closeCh:  make(chan struct{}),
-		username: username,
+		Hub:      ChatHub,//Ссылка на центральный объект Hub
+		Conn:     conn,//WebSocket-соединение между браузером и сервером
+		Send:     make(chan chat.ChatMessage, 16),//Буферизированный канал для отправки сообщений клиенту
+		CloseCh:  make(chan struct{}),//Канал для закрытия клиента
+		Username: username,//Имя пользователя, которое пришло из JWT
 	}
 
 	// Регистрируем клиента в Hub

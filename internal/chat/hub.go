@@ -15,9 +15,9 @@ type ChatMessage struct {
 
 // Hub управляет подключениями, рассылкой сообщений и хранением истории
 type Hub struct {
-	clients    map[*Client]bool // Все активные клиенты
-	broadcast  chan ChatMessage // Канал для отправки сообщений всем клиентам
-	register   chan *Client     // Канал для регистрации нового клиента
+	Clients    map[*Client]bool // Все активные клиенты
+	Broadcast  chan ChatMessage // Канал для отправки сообщений всем клиентам
+	Register   chan *Client     // Канал для регистрации нового клиента
 	unregister chan *Client     // Канал для удаления клиента
 	mu         sync.RWMutex     // Мьютекс для защиты данных от гонок
 
@@ -28,9 +28,9 @@ type Hub struct {
 // NewHub создаёт и возвращает новый Hub
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan ChatMessage, 128), // Буфер канала для сообщений
-		register:   make(chan *Client),
+		Clients:    make(map[*Client]bool),
+		Broadcast:  make(chan ChatMessage, 128), // Буфер канала для сообщений
+		Register:   make(chan *Client),
 		unregister: make(chan *Client),
 		history:    make([]ChatMessage, 0, 50), // Начальная емкость истории
 		maxHistory: 50,                          // Максимум последних сообщений
@@ -43,20 +43,20 @@ func (h *Hub) Run() {
 	for {
 		select {
 		// Новый клиент подключился
-		case c := <-h.register:
+		case c := <-h.Register:
 			h.mu.Lock()
-			h.clients[c] = true
+			h.Clients[c] = true
 			h.mu.Unlock()
 
 			// Отправляем историю сообщений новому клиенту
 			for _, m := range h.history {
-				c.send <- m
+				c.Send <- m
 			}
 
 			// Сообщаем остальным, что клиент присоединился
-			h.broadcast <- ChatMessage{
+			h.Broadcast <- ChatMessage{
 				Type:      "system",
-				From:      c.username,
+				From:      c.Username,
 				Text:      "joined the chat",
 				Timestamp: time.Now().Unix(),
 			}
@@ -64,27 +64,27 @@ func (h *Hub) Run() {
 		// Клиент отключился
 		case c := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[c]; ok {
-				delete(h.clients, c)
-				close(c.closeCh) // Закрываем канал клиента
+			if _, ok := h.Clients[c]; ok {
+				delete(h.Clients, c)
+				close(c.CloseCh) // Закрываем канал клиента
 			}
 			h.mu.Unlock()
 
 			// Сообщаем остальным, что клиент вышел
-			h.broadcast <- ChatMessage{
+			h.Broadcast <- ChatMessage{
 				Type:      "system",
-				From:      c.username,
+				From:      c.Username,
 				Text:      "left the chat",
 				Timestamp: time.Now().Unix(),
 			}
 
 		// Получено новое сообщение для рассылки
-		case msg := <-h.broadcast:
+		case msg := <-h.Broadcast:
 			h.mu.RLock()
 			// Рассылаем сообщение всем активным клиентам
-			for client := range h.clients {
+			for client := range h.Clients {
 				select {
-				case client.send <- msg:
+				case client.Send <- msg:
 				default:
 					// Если канал клиента заблокирован, пропускаем
 				}
