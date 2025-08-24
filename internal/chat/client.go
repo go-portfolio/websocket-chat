@@ -18,8 +18,8 @@ type Client struct {
 	Username string           // Имя пользователя
 }
 
-// readPump читает входящие сообщения от клиента и отправляет их в Hub
-func (c *Client) ReadPump() {
+// ReadSocket читает входящие сообщения от клиента и отправляет их в Hub
+func (c *Client) ReadSocket() {
 	defer func() {
 		// При завершении чтения удаляем клиента из Hub и закрываем соединение
 		c.Hub.unregister <- c
@@ -64,8 +64,8 @@ func (c *Client) ReadPump() {
 	}
 }
 
-// writePump отправляет сообщения из Hub клиенту и поддерживает heartbeat (PING)
-func (c *Client) WritePump() {
+// WriteSocket отправляет сообщения из Hub клиенту и поддерживает heartbeat (PING)
+func (c *Client) WriteSocket() {
 	ticker := time.NewTicker(45 * time.Second) // Периодический PING для проверки соединения
 	defer func() {
 		ticker.Stop()

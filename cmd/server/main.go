@@ -55,7 +55,7 @@ func main() {
 	mux.HandleFunc("/api/login", web.LoginHandler)       // Логин
 
 	// WebSocket маршрут с авторизацией через middleware
-	mux.Handle("/ws", web.AuthMiddleware(http.HandlerFunc(web.WSHandler)))
+	mux.Handle("/ws", web.AuthMiddleware(http.HandlerFunc(web.ChatSocketHandler)))
 
 	// =========================
 	// Запуск сервера
