@@ -160,6 +160,11 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	roomName := r.URL.Query().Get("room")
+	if roomName == "" {
+		roomName = "default"
+	}
+
 	// Обновляем HTTP-соединение до WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -168,7 +173,7 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Создаем клиента
-	room := ChatHub.GetRoom("default")
+	room := ChatHub.GetRoom(roomName)
 	client := &chat.Client{
 		Hub:      ChatHub,                         //Ссылка на центральный объект Hub
 		Room: room,

@@ -51,6 +51,7 @@ func (c *Client) ReadPump() {
 			Type:      "message",
 			From:      c.Username,
 			Text:      strings.TrimSpace(incoming.Text),
+			Room:      c.Room.Name,
 			Timestamp: time.Now().Unix(),
 		}
 		
@@ -58,8 +59,7 @@ func (c *Client) ReadPump() {
 			continue // Игнорируем пустые сообщения
 		}
 
-		// Отправляем сообщение в Hub для рассылки всем клиентам
-		c.Hub.Broadcast <- msg
+		// Отправляем сообщение в Hub для рассылки в комнату
 		c.Room.Broadcast <- msg
 	}
 }
