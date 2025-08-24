@@ -24,8 +24,8 @@ func main() {
 	// =========================
 	// Инициализация глобальных сервисов
 	// =========================
-	web.ChatHub = chat.NewHub()   // Создаем Hub чата для управления подключениями и рассылкой
-	web.Users = user.NewStore()   // Создаем хранилище пользователей (in-memory)
+	web.ChatHub = chat.NewHub() // Создаем Hub чата для управления подключениями и рассылкой
+	web.Users = user.NewStore() // Создаем хранилище пользователей (in-memory)
 
 	// Инициализация JWT-секрета
 	secret := os.Getenv("JWT_SECRET") // Берем из переменной окружения
@@ -47,7 +47,7 @@ func main() {
 
 	// Статический фронт (главная страница)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		web.IndexHandler(w, r, indexHTML)
+		web.IndexHandler(w, r)
 	})
 
 	// API маршруты

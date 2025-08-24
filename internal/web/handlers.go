@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/go-portfolio/websocket-chat/internal/auth"
 	"github.com/go-portfolio/websocket-chat/internal/chat"
@@ -166,11 +168,11 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Создаем клиента
 	client := &chat.Client{
-		Hub:      ChatHub,//Ссылка на центральный объект Hub
-		Conn:     conn,//WebSocket-соединение между браузером и сервером
-		Send:     make(chan chat.ChatMessage, 16),//Буферизированный канал для отправки сообщений клиенту
-		CloseCh:  make(chan struct{}),//Канал для закрытия клиента
-		Username: username,//Имя пользователя, которое пришло из JWT
+		Hub:      ChatHub,                         //Ссылка на центральный объект Hub
+		Conn:     conn,                            //WebSocket-соединение между браузером и сервером
+		Send:     make(chan chat.ChatMessage, 16), //Буферизированный канал для отправки сообщений клиенту
+		CloseCh:  make(chan struct{}),             //Канал для закрытия клиента
+		Username: username,                        //Имя пользователя, которое пришло из JWT
 	}
 
 	// Регистрируем клиента в Hub
@@ -181,10 +183,15 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	client.ReadPump()
 }
 
-// =========================
-// Минимальный index handler
-// =========================
-func IndexHandler(w http.ResponseWriter, r *http.Request, html string) {
+// IndexHandler читает HTML из файла и отдаёт клиенту
+func IndexHandler(w http.ResponseWriter, r *http.Request) {
+	// Определяем путь к index.html
+	path := filepath.Join("..", "..", "internal", "web", "index.html")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		http.Error(w, "index.html not found", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(html))
+	w.Write(data)
 }
