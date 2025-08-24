@@ -1,4 +1,4 @@
-# WebSocket Chat on Go
+# Go WebSocket Чат
 
 ## Стартовать сервер чата
 ```go
