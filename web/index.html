@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go WebSocket Chat</title>
+  <style>
+    /* Стили для простого чата */
+    body { 
+      font-family: sans-serif; 
+      margin: 0; 
+      display: grid; 
+      grid-template-rows: auto 1fr auto; 
+      height: 100vh; 
+    }
+    header { padding: 12px; border-bottom: 1px solid #ccc; display: flex; justify-content: space-between; }
+    main { padding: 16px; overflow-y: auto; }
+    footer { padding: 12px; border-top: 1px solid #ccc; display: flex; gap: 8px; }
+    input, button { padding: 8px 12px; border-radius: 8px; }
+    #messages { display: grid; gap: 6px; }
+    .sys { font-style: italic; opacity: 0.7; }
+    .msg { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
+    .me { border-color: #4c8; } /* Сообщения текущего пользователя выделены */
+    form { display: flex; gap: 6px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <strong>Go WebSocket Chat</strong>
+  <span id="who"></span> <!-- Показывает, кто вошел в чат -->
+</header>
+
+<main>
+  <div id="messages"></div> <!-- Контейнер для сообщений чата -->
+</main>
+
+<footer>
+  <!-- Форма авторизации -->
+  <form id="auth">
+    <input id="username" placeholder="username" maxlength="24" required>
+    <input id="password" type="password" placeholder="password" required>
+    <button type="submit">Sign in</button>
+    <button type="button" id="register">Register</button>
+  </form>
+
+  <!-- Форма чата, изначально скрыта -->
+  <form id="chat" style="display:none">
+    <input id="text" placeholder="Type a message...">
+    <button type="submit">Send</button>
+    <button type="button" id="logout">Logout</button>
+  </form>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s); // Удобный селектор
+const who = $('#who');
+const authForm = $('#auth');
+const chatForm = $('#chat');
+const messages = $('#messages');
+let ws, username;
+
+// =========================
+// Функция для добавления сообщения в чат
+// =========================
+function addMsg({type, from, text, timestamp}) {
+  const el = document.createElement('div');
+  const time = new Date(timestamp*1000).toLocaleTimeString(); // Преобразуем Unix timestamp
+  if(type === 'system'){
+    el.className = 'sys'; // Системные сообщения курсивом
+    el.textContent = `[${time}] ${from} ${text}`;
+  } else {
+    el.className = 'msg' + (from === username ? ' me' : ''); // Сообщения себя подсвечены
+    el.textContent = `[${time}] ${from}: ${text}`;
+  }
+  messages.appendChild(el);
+  messages.scrollTop = messages.scrollHeight; // Прокручиваем вниз
+}
+
+// =========================
+// Регистрация нового пользователя
+// =========================
+async function registerUser(e){
+  e.preventDefault();
+  const body = { username: $('#username').value.trim(), password: $('#password').value };
+  const res = await fetch('/api/register', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if(!res.ok) return alert(data.error || 'register failed');
+  alert('Registered! Now sign in.');
+}
+
+// =========================
+// Логин пользователя
+// =========================
+async function login(e){
+  e.preventDefault();
+  username = $('#username').value.trim();
+  const body = { username, password: $('#password').value };
+  const res = await fetch('/api/login', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if(!res.ok) return alert(data.error || 'login failed');
+
+  // Показываем, кто вошел
+  who.textContent = `as @${username}`;
+  authForm.style.display = 'none';
+  chatForm.style.display = 'flex';
+  connectWS(); // Подключаем WebSocket
+}
+
+// =========================
+// Подключение к WebSocket
+// =========================
+function connectWS(){
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  // Обработка входящих сообщений
+  ws.onmessage = ev => addMsg(JSON.parse(ev.data));
+
+  // Обработка закрытия сокета
+  ws.onclose = () => console.log('socket closed');
+}
+
+// =========================
+// Привязка событий к кнопкам и формам
+// =========================
+authForm.addEventListener('submit', login);
+$('#register').addEventListener('click', registerUser);
+
+chatForm.addEventListener('submit', e=>{
+  e.preventDefault();
+  const text = $('#text').value.trim();
+  if(!text) return;
+  ws.send(JSON.stringify({text})); // Отправка сообщения на сервер
+  $('#text').value = ''; // Очищаем поле ввода
+});
+
+$('#logout').addEventListener('click', ()=>{
+  document.cookie = 'auth=; Max-Age=0; path=/'; // Удаляем cookie
+  who.textContent = '';
+  chatForm.style.display = 'none';
+  authForm.style.display = 'flex';
+  messages.innerHTML = '';
+  if(ws) ws.close(); // Закрываем WebSocket
+});
+</script>
+</body>
+</html>
