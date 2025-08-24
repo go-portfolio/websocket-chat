@@ -11,6 +11,7 @@ import (
 // Client представляет подключенного пользователя
 type Client struct {
 	Hub      *Hub            // Ссылка на Hub для регистрации/рассылки сообщений
+	Room     *Room
 	Conn     *websocket.Conn // WebSocket-соединение клиента
 	Send     chan ChatMessage // Канал для отправки сообщений клиенту
 	CloseCh  chan struct{}    // Канал для безопасного закрытия клиента
@@ -52,12 +53,14 @@ func (c *Client) ReadPump() {
 			Text:      strings.TrimSpace(incoming.Text),
 			Timestamp: time.Now().Unix(),
 		}
+		
 		if msg.Text == "" {
 			continue // Игнорируем пустые сообщения
 		}
 
 		// Отправляем сообщение в Hub для рассылки всем клиентам
 		c.Hub.Broadcast <- msg
+		c.Room.Broadcast <- msg
 	}
 }
 

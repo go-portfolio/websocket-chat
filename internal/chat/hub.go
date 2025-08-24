@@ -13,12 +13,21 @@ type ChatMessage struct {
 	Timestamp int64  `json:"timestamp"` // Временная метка Unix
 }
 
+type Room struct {
+	Name      string
+	Clients   map[*Client]bool
+	Broadcast chan ChatMessage
+	History   []ChatMessage
+	Mu        sync.RWMutex
+}
+
 // Hub управляет подключениями, рассылкой сообщений и хранением истории
 type Hub struct {
 	Clients    map[*Client]bool // Все активные клиенты
 	Broadcast  chan ChatMessage // Канал для отправки сообщений всем клиентам
 	Register   chan *Client     // Канал для регистрации нового клиента
 	unregister chan *Client     // Канал для удаления клиента
+	Rooms map[string]*Room
 	mu         sync.RWMutex     // Мьютекс для защиты данных от гонок
 
 	history    []ChatMessage // История последних сообщений
@@ -29,11 +38,12 @@ type Hub struct {
 func NewHub() *Hub {
 	return &Hub{
 		Clients:    make(map[*Client]bool),
+		Rooms: make(map[string]*Room),
 		Broadcast:  make(chan ChatMessage, 128), // Буфер канала для сообщений
 		Register:   make(chan *Client),
 		unregister: make(chan *Client),
 		history:    make([]ChatMessage, 0, 50), // Начальная емкость истории
-		maxHistory: 50,                          // Максимум последних сообщений
+		maxHistory: 50,                         // Максимум последних сообщений
 	}
 }
 
@@ -100,3 +110,52 @@ func (h *Hub) Run() {
 		}
 	}
 }
+
+func (h *Hub) GetRoom(name string) *Room {
+    h.mu.Lock()
+    defer h.mu.Unlock()
+    if room, ok := h.Rooms[name]; ok {
+        return room
+    }
+    room := &Room{
+        Name:      name,
+        Clients:   make(map[*Client]bool),
+        Broadcast: make(chan ChatMessage, 128),
+        History:   make([]ChatMessage, 0, 50),
+    }
+    h.Rooms[name] = room
+    go room.Run()
+    return room
+}
+
+
+
+func (r *Room) Run() {
+    for msg := range r.Broadcast {
+        r.Mu.RLock()
+        for c := range r.Clients {
+            select {
+            case c.Send <- msg:
+            default:
+            }
+        }
+        r.Mu.RUnlock()
+
+        r.History = append(r.History, msg)
+        if len(r.History) > 50 {
+            r.History = r.History[len(r.History)-50:]
+        }
+    }
+}
+
+func (r *Room) OnlineUsers() []string {
+    r.Mu.RLock()
+    defer r.Mu.RUnlock()
+    users := make([]string, 0, len(r.Clients))
+    for c := range r.Clients {
+        users = append(users, c.Username)
+    }
+    return users
+}
+
+

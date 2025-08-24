@@ -40,6 +40,10 @@
   <form id="auth">
     <input id="username" placeholder="username" maxlength="24" required>
     <input id="password" type="password" placeholder="password" required>
+    <select id="room">
+    <option value="default">Default</option>
+    <option value="sports">Sports</option>
+    </select>
     <button type="submit">Sign in</button>
     <button type="button" id="register">Register</button>
   </form>
@@ -120,8 +124,8 @@ async function login(e){
 // =========================
 function connectWS(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
-
+  const room = $('#room').value;
+  ws = new WebSocket(`${proto}://${location.host}/ws?room=${room}`);
   // Обработка входящих сообщений
   ws.onmessage = ev => addMsg(JSON.parse(ev.data));
 
