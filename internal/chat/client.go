@@ -33,14 +33,14 @@ type UserClient interface {
 // Client представляет подключенного пользователя
 type Client struct {
 	Hub         *Hub
-	Room        *Room
+	Room        RoomManager
 	Conn        WebSocketConn    // Интерфейс вместо конкретного типа
 	privateChan chan ChatMessage
 	CloseCh     chan struct{}
 	Username    string
 }
 
-func NewClient(hub *Hub, room *Room, conn WebSocketConn, username string) *Client {
+func NewClient(hub *Hub, room RoomManager, conn WebSocketConn, username string) *Client {
     return &Client{
         Hub:         hub,
         Room:        room,
@@ -60,10 +60,11 @@ func (c *Client) GetUsername() string {
 // GetRoomName возвращает имя комнаты, к которой подключен клиент
 func (c *Client) GetRoomName() string {
 	if c.Room != nil {
-		return c.Room.Name
+		return c.Room.GetName() // теперь через метод интерфейса
 	}
 	return ""
 }
+
 
 // SendMessage отправляет сообщение клиенту (через PrivateChan)
 func (c *Client) SendMessage(msg ChatMessage) error {
@@ -142,7 +143,7 @@ func (client *Client) ReadSocket() {
 			}
 			client.Hub.mu.RUnlock()
 		} else {
-			client.Room.Broadcast <- msg
+			client.Room.BroadcastMessage(msg)
 		}
 	}
 }

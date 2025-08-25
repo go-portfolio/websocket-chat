@@ -214,14 +214,14 @@ func ChatConnectionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Получаем комнату через интерфейс RoomManager
+	room := ChatHub.GetRoom(roomName) // room имеет тип RoomManager
+
 	// Создаем клиента
-	room := ChatHub.GetRoom(roomName)
-	
 	client := chat.NewClient(ChatHub, room, conn, username)
 
-	room.Mu.Lock()
-	room.Clients[client] = true
-	room.Mu.Unlock()
+	// Добавляем клиента через интерфейс
+	room.AddClient(client)
 
 	// Регистрируем клиента в Hub
 	ChatHub.RegisterCh <- client
@@ -230,6 +230,7 @@ func ChatConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	go client.WriteSocket()
 	client.ReadSocket()
 }
+
 
 // IndexHandler читает HTML из файла и отдаёт клиенту
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
