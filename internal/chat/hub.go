@@ -6,27 +6,41 @@ import (
 	"time"
 )
 
-// ChatMessage представляет одно сообщение в чате
+// ----------------------------
+// Сообщение чата
+// ----------------------------
 type ChatMessage struct {
-	Type      string              `json:"type"`         // Тип: "system", "message", "private"
-	From      string              `json:"from"`         // Отправитель
-	To        string              `json:"to,omitempty"` // Адресат (для приватных)
-	Text      string              `json:"text"`         // Текст
-	Timestamp int64               `json:"timestamp"`    // Временная метка
+	Type      string              `json:"type"`
+	From      string              `json:"from"`
+	To        string              `json:"to,omitempty"`
+	Text      string              `json:"text"`
+	Timestamp int64               `json:"timestamp"`
 	Room      string              `json:"room"`
-	Users     map[string]UserClient // username → client
+	Users     map[string]UserClient
 }
 
 // ----------------------------
 // Интерфейс для комнаты
 // ----------------------------
 type RoomManager interface {
-	Run()                 // Запускает обработку сообщений
-	OnlineUsers() []string // Возвращает список онлайн-юзеров
+	Run()
+	OnlineUsers() []string
 	AddClient(c UserClient)
 	RemoveClient(c UserClient)
 	BroadcastMessage(msg ChatMessage)
 	GetName() string
+}
+
+// ----------------------------
+// Интерфейс для Hub
+// ----------------------------
+type HubManager interface {
+	Run()
+	RegisterClient(c UserClient)
+	UnregisterClient(c UserClient)
+	Broadcast(msg ChatMessage)
+	GetRoom(name string) RoomManager
+	GetClients() []UserClient
 }
 
 // ----------------------------
@@ -60,7 +74,6 @@ func (r *Room) Run() {
 		}
 		r.Mu.RUnlock()
 
-		// сохраняем историю (не более 50)
 		r.History = append(r.History, msg)
 		if len(r.History) > 50 {
 			r.History = r.History[len(r.History)-50:]
@@ -102,95 +115,103 @@ func (r *Room) GetName() string {
 // Hub (менеджер чатов)
 // ----------------------------
 type Hub struct {
-	Clients      map[UserClient]bool // Все активные клиенты
-	Broadcast    chan ChatMessage     // Канал общих сообщений
-	RegisterCh   chan UserClient      // Регистрация клиента
-	unregisterCh chan UserClient      // Удаление клиента
+	Clients      map[UserClient]bool
+	RegisterCh   chan UserClient
+	unregisterCh chan UserClient
 	Rooms        map[string]RoomManager
 	mu           sync.RWMutex
+	BroadcastCh chan ChatMessage 
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		Clients:      make(map[UserClient]bool),
 		Rooms:        make(map[string]RoomManager),
-		Broadcast:    make(chan ChatMessage, 128),
+		BroadcastCh:    make(chan ChatMessage, 128),
 		RegisterCh:   make(chan UserClient),
 		unregisterCh: make(chan UserClient),
 	}
 }
 
-// Главный цикл Hub
-func (chatHub *Hub) Run() {
+// Реализация HubManager
+func (h *Hub) Run() {
 	for {
 		select {
-		case client := <-chatHub.RegisterCh:
-			chatHub.mu.Lock()
-			chatHub.Clients[client] = true
-			chatHub.mu.Unlock()
-
-			room := chatHub.GetRoom(client.GetRoomName())
-
-			// Отправляем историю новому клиенту
-			if r, ok := room.(*Room); ok {
-				r.Mu.RLock()
-				for _, msg := range r.History {
-					client.SendMessage(msg)
-				}
-				r.Mu.RUnlock()
-			}
-
-			room.AddClient(client)
-
-			// Системное сообщение
-			room.BroadcastMessage(ChatMessage{
-				Type:      "system",
-				From:      client.GetUsername(),
-				Room:      room.GetName(),
-				Text:      fmt.Sprintf("присоединился к комнате %s", room.GetName()),
-				Timestamp: time.Now().Unix(),
-			})
-
-		case client := <-chatHub.unregisterCh:
-			chatHub.mu.Lock()
-			if _, ok := chatHub.Clients[client]; ok {
-				delete(chatHub.Clients, client)
-				client.Close()
-			}
-			chatHub.mu.Unlock()
-
-			room := chatHub.GetRoom(client.GetRoomName())
-			room.RemoveClient(client)
-
-			room.BroadcastMessage(ChatMessage{
-				Type:      "system",
-				From:      client.GetUsername(),
-				Room:      room.GetName(),
-				Text:      fmt.Sprintf("покинул комнату %s", room.GetName()),
-				Timestamp: time.Now().Unix(),
-			})
-
-		case msg := <-chatHub.Broadcast:
-			chatHub.mu.Lock()
-			if msg.To != "" {
-				// приватное сообщение
-				for client := range chatHub.Clients {
-					if client.GetUsername() == msg.To || client.GetUsername() == msg.From {
-						select {
-						case client.PrivateChan() <- msg:
-						default:
-						}
-					}
-				}
-				chatHub.mu.Unlock()
-				continue
-			}
-
-			if room, ok := chatHub.Rooms[msg.Room]; ok {
-				room.BroadcastMessage(msg)
-			}
-			chatHub.mu.Unlock()
+		case client := <-h.RegisterCh:
+			h.RegisterClient(client)
+		case client := <-h.unregisterCh:
+			h.UnregisterClient(client)
+		case msg := <-h.BroadcastCh:
+			h.Broadcast(msg)
 		}
+	}
+}
+
+func (h *Hub) RegisterClient(client UserClient) {
+	h.mu.Lock()
+	h.Clients[client] = true
+	h.mu.Unlock()
+
+	room := h.GetRoom(client.GetRoomName())
+
+	// Отправка истории
+	if r, ok := room.(*Room); ok {
+		r.Mu.RLock()
+		for _, msg := range r.History {
+			client.SendMessage(msg)
+		}
+		r.Mu.RUnlock()
+	}
+
+	room.AddClient(client)
+
+	room.BroadcastMessage(ChatMessage{
+		Type:      "system",
+		From:      client.GetUsername(),
+		Room:      room.GetName(),
+		Text:      fmt.Sprintf("присоединился к комнате %s", room.GetName()),
+		Timestamp: time.Now().Unix(),
+	})
+}
+
+func (h *Hub) UnregisterClient(client UserClient) {
+	h.mu.Lock()
+	if _, ok := h.Clients[client]; ok {
+		delete(h.Clients, client)
+		client.Close()
+	}
+	h.mu.Unlock()
+
+	room := h.GetRoom(client.GetRoomName())
+	room.RemoveClient(client)
+
+	room.BroadcastMessage(ChatMessage{
+		Type:      "system",
+		From:      client.GetUsername(),
+		Room:      room.GetName(),
+		Text:      fmt.Sprintf("покинул комнату %s", room.GetName()),
+		Timestamp: time.Now().Unix(),
+	})
+}
+
+func (h *Hub) Broadcast(msg ChatMessage) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if msg.To != "" {
+		for client := range h.Clients {
+			if client.GetUsername() == msg.To || client.GetUsername() == msg.From {
+				select {
+				case client.PrivateChan() <- msg:
+				default:
+				}
+			}
+		}
+		return
+	}
+
+	if room, ok := h.Rooms[msg.Room]; ok {
+		room.BroadcastMessage(msg)
 	}
 }
 
@@ -206,3 +227,12 @@ func (h *Hub) GetRoom(name string) RoomManager {
 	return room
 }
 
+func (h *Hub) GetClients() []UserClient {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	clients := make([]UserClient, 0, len(h.Clients))
+	for c := range h.Clients {
+		clients = append(clients, c)
+	}
+	return clients
+}
