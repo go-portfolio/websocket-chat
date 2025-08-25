@@ -15,6 +15,7 @@ import (
 type Credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	Avatar string `json:"avatar"`
 }
 
 // Store — хранилище пользователей в PostgreSQL
@@ -55,7 +56,7 @@ func (s *Store) Close() error {
 }
 
 // Register регистрирует нового пользователя
-func (s *Store) Register(username, password string) error {
+func (s *Store) Register(username, password, avatar string) error {
 	username = strings.TrimSpace(username)
 
 	if username == "" || password == "" {
@@ -73,8 +74,8 @@ func (s *Store) Register(username, password string) error {
 	}
 
 	// Пытаемся вставить пользователя
-	query := `INSERT INTO users (username, password_hash, created_at) VALUES ($1, $2, $3)`
-	_, err = s.db.Exec(query, username, string(hash), time.Now())
+	query := `INSERT INTO users (username, password_hash, created_at, avatar) VALUES ($1, $2, $3, $4)`
+	_, err = s.db.Exec(query, username, string(hash), time.Now(), avatar)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") {
 			return fmt.Errorf("username already exists")
@@ -100,4 +101,13 @@ func (s *Store) Authenticate(username, password string) bool {
 
 	// Сравниваем пароль с хэшем
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+// GetAvatar получает аватар
+func (s *Store) GetAvatar(username string) string {
+	row := s.db.QueryRow(`SELECT avatar FROM users WHERE username=$1`, username)
+	var avatar string
+	row.Scan(&avatar)
+
+	return avatar
 }

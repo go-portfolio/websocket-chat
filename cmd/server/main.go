@@ -27,13 +27,6 @@ func main() {
 	}
 	defer store.Close() // не забудь закрыть соединение с БД
 
-	// тест: регистрация
-	if err := store.Register("alex", "12345"); err != nil {
-		log.Println("register error:", err)
-	} else {
-		log.Println("user alex registered")
-	}
-
 	// тест: авторизация
 	ok := store.Authenticate("alex", "12345")
 	log.Println("auth success?", ok)
@@ -74,6 +67,9 @@ func main() {
 	// WebSocket маршрут с авторизацией через middleware
 	mux.Handle("/ws", web.AuthMiddleware(http.HandlerFunc(web.ChatConnectionHandler)))
 
+	// Раздача файлов (аватары)
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+	
 	// =========================
 	// Запуск сервера
 	// =========================

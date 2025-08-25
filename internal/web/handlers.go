@@ -3,10 +3,13 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/go-portfolio/websocket-chat/internal/auth"
 	"github.com/go-portfolio/websocket-chat/internal/chat"
@@ -45,18 +48,53 @@ func withJSON(w http.ResponseWriter) {
 // тело JSON { "username": "...", "password": "..." }
 // =========================
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	withJSON(w)
+	  // Парсим multipart/form-data
+    err := r.ParseMultipartForm(10 << 20) // 10MB лимит
+    if err != nil {
+        http.Error(w, "invalid form data", http.StatusBadRequest)
+        return
+    }
 
 	var cred user.Credentials
-	// Декодируем JSON тело запроса
-	if err := json.NewDecoder(r.Body).Decode(&cred); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid json"})
-		return
+    cred.Username = r.FormValue("username")
+    cred.Password = r.FormValue("password")
+
+    file, handler, err := r.FormFile("avatar")
+    if err == nil {
+        defer file.Close()
+        log.Printf("Uploaded File: %+v, Size: %d", handler.Filename, handler.Size)
+        // тут можно сохранить файл
+    }
+
+	var avatarURL string
+
+	if err == nil { // файл передан
+		defer file.Close()
+
+		// создаём папку, если нет
+		os.MkdirAll("uploads", os.ModePerm)
+
+		// уникальное имя
+		filename := fmt.Sprintf("uploads/%d_%s", time.Now().Unix(), handler.Filename)
+		dst, err := os.Create(filename)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "cannot save file"})
+			return
+		}
+		defer dst.Close()
+
+		if _, err = io.Copy(dst, file); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "cannot write file"})
+			return
+		}
+
+		avatarURL = "/" + filename // путь для фронтенда
 	}
 
 	// Регистрируем пользователя в Users
-	if err := Users.Register(cred.Username, cred.Password); err != nil {
+	if err := Users.Register(cred.Username, cred.Password, avatarURL); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -108,7 +146,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &cookie)
 
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	var avatar = Users.GetAvatar(cred.Username)
+
+
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "avatar": avatar})
 }
 
 // =========================
@@ -175,12 +216,12 @@ func ChatConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	// Создаем клиента
 	room := ChatHub.GetRoom(roomName)
 	client := &chat.Client{
-		Hub:      ChatHub,                         //Ссылка на центральный объект Hub
-		Room: room,
-		Conn:     conn,                            //WebSocket-соединение между браузером и сервером
-		PrivateChan:     make(chan chat.ChatMessage, 16), //Буферизированный канал для отправки сообщений клиенту
-		CloseCh:  make(chan struct{}),             //Канал для закрытия клиента
-		Username: username,                        //Имя пользователя, которое пришло из JWT
+		Hub:         ChatHub, //Ссылка на центральный объект Hub
+		Room:        room,
+		Conn:        conn,                            //WebSocket-соединение между браузером и сервером
+		PrivateChan: make(chan chat.ChatMessage, 16), //Буферизированный канал для отправки сообщений клиенту
+		CloseCh:     make(chan struct{}),             //Канал для закрытия клиента
+		Username:    username,                        //Имя пользователя, которое пришло из JWT
 	}
 	room.Mu.Lock()
 	room.Clients[client] = true
