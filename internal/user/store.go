@@ -15,7 +15,7 @@ import (
 type Credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
-	Avatar string `json:"avatar"`
+	Avatar   string `json:"avatar"`
 }
 
 // Store — хранилище пользователей в PostgreSQL
@@ -73,9 +73,16 @@ func (s *Store) Register(username, password, avatar string) error {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	var avatarValue sql.NullString
+	if avatar == "" {
+		avatarValue = sql.NullString{String: "", Valid: false} // NULL
+	} else {
+		avatarValue = sql.NullString{String: avatar, Valid: true}
+	}
+
 	// Пытаемся вставить пользователя
 	query := `INSERT INTO users (username, password_hash, created_at, avatar) VALUES ($1, $2, $3, $4)`
-	_, err = s.db.Exec(query, username, string(hash), time.Now(), avatar)
+	_, err = s.db.Exec(query, username, string(hash), time.Now(), avatarValue)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") {
 			return fmt.Errorf("username already exists")

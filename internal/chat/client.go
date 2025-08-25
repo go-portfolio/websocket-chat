@@ -8,107 +8,168 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Client представляет подключенного пользователя
-type Client struct {
-	Hub      *Hub            // Ссылка на Hub для регистрации/рассылки сообщений
-	Room     *Room
-	Conn     *websocket.Conn // WebSocket-соединение клиента
-	PrivateChan     chan ChatMessage // Канал для отправки сообщений клиенту
-	CloseCh  chan struct{}    // Канал для безопасного закрытия клиента
-	Username string           // Имя пользователя
+// WebSocketConn описывает минимальный набор методов websocket.Conn, которые нужны клиенту
+type WebSocketConn interface {
+	ReadJSON(v interface{}) error
+	WriteJSON(v interface{}) error
+	SetReadLimit(limit int64)
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
+	SetPongHandler(h func(string) error)
+	WriteMessage(messageType int, data []byte) error
+	Close() error
 }
 
-// ReadSocket читает входящие сообщения от клиента и отправляет их в Hub
+// UserClient описывает поведение клиента в чате
+type UserClient interface {
+	GetUsername() string
+	GetRoomName() string
+	SendMessage(msg ChatMessage) error
+	ReceivePrivateChan() <-chan ChatMessage
+	Close() error
+	PrivateChan() chan ChatMessage
+}
+
+// Client представляет подключенного пользователя
+type Client struct {
+	Hub         *Hub
+	Room        *Room
+	Conn        WebSocketConn    // Интерфейс вместо конкретного типа
+	privateChan chan ChatMessage
+	CloseCh     chan struct{}
+	Username    string
+}
+
+func NewClient(hub *Hub, room *Room, conn WebSocketConn, username string) *Client {
+    return &Client{
+        Hub:         hub,
+        Room:        room,
+        Conn:        conn,
+        privateChan: make(chan ChatMessage, 16),
+        CloseCh:     make(chan struct{}),
+        Username:    username,
+    }
+}
+
+
+// GetUsername возвращает имя пользователя
+func (c *Client) GetUsername() string {
+	return c.Username
+}
+
+// GetRoomName возвращает имя комнаты, к которой подключен клиент
+func (c *Client) GetRoomName() string {
+	if c.Room != nil {
+		return c.Room.Name
+	}
+	return ""
+}
+
+// SendMessage отправляет сообщение клиенту (через PrivateChan)
+func (c *Client) SendMessage(msg ChatMessage) error {
+	select {
+	case c.privateChan <- msg:
+		return nil
+	default:
+		return nil // или ошибка "канал заполнен"
+	}
+}
+
+// ReceivePrivateChan возвращает канал входящих сообщений
+func (c *Client) ReceivePrivateChan() <-chan ChatMessage {
+	return c.PrivateChan()
+}
+
+func (c *Client) PrivateChan() chan ChatMessage {
+	return c.privateChan
+}
+
+
+// Close закрывает соединение и каналы
+func (c *Client) Close() error {
+	close(c.CloseCh)
+	return c.Conn.Close()
+}
+
+// ReadSocket читает сообщения из WebSocket
 func (client *Client) ReadSocket() {
 	defer func() {
-		// При завершении чтения удаляем клиента из Hub и закрываем соединение
 		client.Hub.unregisterCh <- client
 		client.Conn.Close()
 	}()
 
-	// Настройка лимита и времени ожидания чтения
-	client.Conn.SetReadLimit(512) // Максимальный размер сообщения
+	client.Conn.SetReadLimit(512)
 	client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	client.Conn.SetPongHandler(func(string) error { // Обновление таймаута при получении PONG
+	client.Conn.SetPongHandler(func(string) error {
 		client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 
 	for {
 		var incoming struct {
-			Text string `json:"text"` // Структура ожидаемого JSON-сообщения
-			To string `json:"to"` // Структура ожидаемого JSON-сообщения
-			Type string `json:"type"` // Структура ожидаемого JSON-сообщения
+			Text string `json:"text"`
+			To   string `json:"to"`
+			Type string `json:"type"`
 		}
-		// Читаем JSON-сообщение
+
 		if err := client.Conn.ReadJSON(&incoming); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("read error: %v", err)
 			}
-			break // Завершаем цикл при ошибке
+			break
 		}
 
-		// Создаем ChatMessage для Hub
 		msg := ChatMessage{
 			Type:      strings.TrimSpace(incoming.Type),
 			From:      client.Username,
 			Text:      strings.TrimSpace(incoming.Text),
-			To:      strings.TrimSpace(incoming.To),
-			Room:      client.Room.Name,
+			To:        strings.TrimSpace(incoming.To),
+			Room:      client.GetRoomName(),
 			Timestamp: time.Now().Unix(),
 		}
-		
+
 		if msg.Text == "" {
-			continue // Игнорируем пустые сообщения
+			continue
 		}
 
 		if msg.To != "" {
-			// Личное сообщение
 			msg.Type = "private"
 			client.Hub.mu.RLock()
-			//Ищем клиента
-			for client := range client.Hub.Clients {
-				if client.Username == msg.To || client.Username == msg.From {
-					select {
-					case client.PrivateChan <- msg: //Отправляем клиенту личное сообщение
-					default:
-					}
+			for c := range client.Hub.Clients {
+				if c.GetUsername() == msg.To || c.GetUsername() == msg.From {
+					_ = c.SendMessage(msg)
 				}
 			}
 			client.Hub.mu.RUnlock()
 		} else {
-			// Сообщение в комнату
 			client.Room.Broadcast <- msg
 		}
 	}
 }
 
-// WriteSocket отправляет сообщения из Hub клиенту и поддерживает heartbeat (PING)
+// WriteSocket пишет сообщения из канала клиенту и посылает PING
 func (client *Client) WriteSocket() {
-	ticker := time.NewTicker(45 * time.Second) // Периодический PING для проверки соединения
+	ticker := time.NewTicker(45 * time.Second)
 	defer func() {
 		ticker.Stop()
-		client.Conn.Close() // Закрываем соединение при завершении
+		client.Conn.Close()
 	}()
 
 	for {
 		select {
-		case msg := <-client.PrivateChan:
-			// Отправляем сообщение клиенту
+		case msg := <-client.privateChan:
 			client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := client.Conn.WriteJSON(msg); err != nil {
-				return // Завершаем при ошибке записи
+				return
 			}
 
 		case <-ticker.C:
-			// Отправляем PING каждые 45 секунд
 			client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return // Завершаем при ошибке PING
+				return
 			}
 
 		case <-client.CloseCh:
-			// Завершение работы при закрытии клиента
 			return
 		}
 	}

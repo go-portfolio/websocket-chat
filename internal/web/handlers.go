@@ -34,6 +34,7 @@ var (
 	CookieName = "auth"    // Имя cookie для хранения JWT
 )
 
+
 // =========================
 // Вспомогательная функция для JSON ответов
 // =========================
@@ -215,14 +216,9 @@ func ChatConnectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Создаем клиента
 	room := ChatHub.GetRoom(roomName)
-	client := &chat.Client{
-		Hub:         ChatHub, //Ссылка на центральный объект Hub
-		Room:        room,
-		Conn:        conn,                            //WebSocket-соединение между браузером и сервером
-		PrivateChan: make(chan chat.ChatMessage, 16), //Буферизированный канал для отправки сообщений клиенту
-		CloseCh:     make(chan struct{}),             //Канал для закрытия клиента
-		Username:    username,                        //Имя пользователя, которое пришло из JWT
-	}
+	
+	client := chat.NewClient(ChatHub, room, conn, username)
+
 	room.Mu.Lock()
 	room.Clients[client] = true
 	room.Mu.Unlock()

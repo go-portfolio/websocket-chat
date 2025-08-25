@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+
 // ChatMessage представляет одно сообщение в чате
 type ChatMessage struct {
 	Type      string             `json:"type"`         // Тип сообщения: "system" или "message" или "private"
@@ -14,12 +15,12 @@ type ChatMessage struct {
 	Text      string             `json:"text"`         // Текст сообщения
 	Timestamp int64              `json:"timestamp"`    // Временная метка Unix
 	Room      string             `join:"room"`
-	Users     map[string]*Client // 🔑 username → client
+	Users     map[string]UserClient // 🔑 username → client
 }
 
 type Room struct {
 	Name      string
-	Clients   map[*Client]bool
+	Clients   map[UserClient]bool
 	Broadcast chan ChatMessage
 	History   []ChatMessage
 	Mu        sync.RWMutex
@@ -27,43 +28,39 @@ type Room struct {
 
 // Hub управляет подключениями, рассылкой сообщений и хранением истории
 type Hub struct {
-	Clients      map[*Client]bool // Все активные клиенты
-	Broadcast    chan ChatMessage // Канал для отправки сообщений всем клиентам
-	RegisterCh   chan *Client     // Канал для регистрации нового клиента
-	unregisterCh chan *Client     // Канал для удаления клиента
+	Clients      map[UserClient]bool // Все активные клиенты
+	Broadcast    chan ChatMessage     // Канал для отправки сообщений всем клиентам
+	RegisterCh   chan UserClient      // Канал для регистрации нового клиента
+	unregisterCh chan UserClient      // Канал для удаления клиента
 	Rooms        map[string]*Room
 	mu           sync.RWMutex // Мьютекс для защиты данных от гонок
 }
 
-// NewHub создаёт и возвращает новый Hub
 func NewHub() *Hub {
 	return &Hub{
-		Clients:      make(map[*Client]bool),
+		Clients:      make(map[UserClient]bool),
 		Rooms:        make(map[string]*Room),
-		Broadcast:    make(chan ChatMessage, 128), // Буфер канала для сообщений
-		RegisterCh:   make(chan *Client),
-		unregisterCh: make(chan *Client),
+		Broadcast:    make(chan ChatMessage, 128),
+		RegisterCh:   make(chan UserClient),
+		unregisterCh: make(chan UserClient),
 	}
 }
 
-// Run запускает главный цикл Hub, который обрабатывает регистрацию,
-// удаление клиентов и рассылку сообщений
+// Run запускает главный цикл Hub
 func (chatHub *Hub) Run() {
 	for {
 		select {
-		// Новый клиент подключился
 		case client := <-chatHub.RegisterCh:
 			chatHub.mu.Lock()
 			chatHub.Clients[client] = true
 			chatHub.mu.Unlock()
 
-			room := chatHub.GetRoom(client.Room.Name)
+			room := chatHub.GetRoom(client.GetRoomName())
 
 			// Отправляем историю комнаты новому клиенту
 			room.Mu.RLock()
-			// Отправляем историю сообщений новому клиенту
 			for _, msg := range room.History {
-				client.PrivateChan <- msg
+				client.SendMessage(msg)
 			}
 			room.Mu.RUnlock()
 
@@ -74,58 +71,54 @@ func (chatHub *Hub) Run() {
 			// Сообщаем остальным, что клиент присоединился
 			room.Broadcast <- ChatMessage{
 				Type:      "system",
-				From:      client.Username,
+				From:      client.GetUsername(),
 				Room:      room.Name,
 				Text:      fmt.Sprintf("присоединился к комнате %s", room.Name),
 				Timestamp: time.Now().Unix(),
 			}
 
-		// Клиент отключился
 		case client := <-chatHub.unregisterCh:
 			chatHub.mu.Lock()
 			if _, ok := chatHub.Clients[client]; ok {
 				delete(chatHub.Clients, client)
-				close(client.CloseCh) // Закрываем канал клиента
+				client.Close()
 			}
 			chatHub.mu.Unlock()
 
-			room := chatHub.GetRoom(client.Room.Name)
+			room := chatHub.GetRoom(client.GetRoomName())
 
 			room.Mu.Lock()
-			delete(room.Clients, client) // удаляем клиента из комнаты
+			delete(room.Clients, client)
 			room.Mu.Unlock()
 
 			// Сообщаем остальным, что клиент вышел
 			room.Broadcast <- ChatMessage{
 				Type:      "system",
-				From:      client.Username,
+				From:      client.GetUsername(),
 				Room:      room.Name,
 				Text:      fmt.Sprintf("покинул комнату %s", room.Name),
 				Timestamp: time.Now().Unix(),
 			}
 
-		// Получено новое сообщение для рассылки
 		case msg := <-chatHub.Broadcast:
 			chatHub.mu.Lock()
-
-			// Приватное сообщение
 			if msg.To != "" {
 				for client := range chatHub.Clients {
-					if client.Username == msg.To || client.Username == msg.From {
+					if client.GetUsername() == msg.To || client.GetUsername() == msg.From {
 						select {
-						case client.PrivateChan <- msg:
+						case client.PrivateChan() <- msg:
 						default:
 						}
 					}
 				}
+				chatHub.mu.Unlock()
 				continue
 			}
 
-			// Сообщение в комнату
 			if room, ok := chatHub.Rooms[msg.Room]; ok {
 				room.Broadcast <- msg
 			}
-			chatHub.mu.Unlock()	
+			chatHub.mu.Unlock()
 		}
 	}
 }
@@ -138,7 +131,7 @@ func (h *Hub) GetRoom(name string) *Room {
 	}
 	room := &Room{
 		Name:      name,
-		Clients:   make(map[*Client]bool),
+		Clients:   make(map[UserClient]bool),
 		Broadcast: make(chan ChatMessage, 128),
 		History:   make([]ChatMessage, 0, 50),
 	}
@@ -152,7 +145,7 @@ func (r *Room) Run() {
 		r.Mu.RLock()
 		for c := range r.Clients {
 			select {
-			case c.PrivateChan <- msg:
+			case c.PrivateChan() <- msg:
 			default:
 			}
 		}
@@ -170,7 +163,7 @@ func (r *Room) OnlineUsers() []string {
 	defer r.Mu.RUnlock()
 	users := make([]string, 0, len(r.Clients))
 	for c := range r.Clients {
-		users = append(users, c.Username)
+		users = append(users, c.GetUsername())
 	}
 	return users
 }
