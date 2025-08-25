@@ -161,6 +161,7 @@
   <!-- Форма чата -->
   <form id="chat" style="display:none;">
     <input id="text" placeholder="Введите сообщение...">
+    <input id="to" placeholder="Кому (необязательно)">
     <button type="submit">Отправить</button>
     <button type="button" id="logout">Выйти</button>
   </form>
@@ -179,9 +180,12 @@ function addMsg({type, from, text, timestamp}) {
   const el = document.createElement('div');
   const time = new Date(timestamp * 1000).toLocaleTimeString();
 
-  if(type === 'system') {
+  if(type === "private") {
+    el.textContent = `[Приват] ${from} -> ${to}: ${text}`;
+  }
+  else if(type === 'system') {
     el.className = 'sys';
-    el.textContent = `[${time}] ${from} ${text}`;
+    el.textContent = `[Система][${time}] ${from} ${text}`;
   } else {
     el.className = 'msg' + (from === username ? ' me' : '');
     el.textContent = `[${time}] ${from}: ${text}`;
@@ -241,8 +245,9 @@ $('#register').addEventListener('click', registerUser);
 chatForm.addEventListener('submit', e => {
   e.preventDefault();
   const text = $('#text').value.trim();
+  const to = $("#to").value;
   if(!text) return;
-  ws.send(JSON.stringify({text}));
+    ws.send(JSON.stringify({type: to ? "private":"message", text, to})); 
   $('#text').value = '';
 });
 

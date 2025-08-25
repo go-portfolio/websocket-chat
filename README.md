@@ -20,4 +20,7 @@ CREATE DATABASE chatapp;
 CREATE USER chatuser WITH PASSWORD 'secret';
 GRANT ALL PRIVILEGES ON DATABASE chatapp TO chatuser;
 
+Для запуска миграций нужно убедиться что установлен:
+go get github.com/golang-migrate/migrate/v4/cmd/migrate
+
 

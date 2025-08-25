@@ -59,8 +59,23 @@ func (client *Client) ReadSocket() {
 			continue // Игнорируем пустые сообщения
 		}
 
-		// Отправляем сообщение в Hub для рассылки в комнату
-		client.Room.Broadcast <- msg
+		if msg.To != "" {
+			// Личное сообщение
+			msg.Type = "private"
+			client.Hub.mu.RLock()
+			for client := range client.Hub.Clients {
+				if client.Username == msg.To || client.Username == msg.From {
+					select {
+					case client.Send <- msg:
+					default:
+					}
+				}
+			}
+			client.Hub.mu.RUnlock()
+		} else {
+			// Сообщение в комнату
+			client.Room.Broadcast <- msg
+		}
 	}
 }
 

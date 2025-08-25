@@ -8,12 +8,13 @@ import (
 
 // ChatMessage представляет одно сообщение в чате
 type ChatMessage struct {
-	Type      string `json:"type"`      // Тип сообщения: "system" или "message" или "private"
-	From      string `json:"from"`      // Отправитель: имя пользователя или "system"
-	Text      string `json:"text"`      // Текст сообщения
-	Timestamp int64  `json:"timestamp"` // Временная метка Unix
-	Room      string `join:"room"`
-	Users      map[string]*Client // 🔑 username → client
+	Type      string             `json:"type"`         // Тип сообщения: "system" или "message" или "private"
+	From      string             `json:"from"`         // Отправитель: имя пользователя или "system"
+	To        string             `json:"to,omitempty"` // Для приватных сообщений
+	Text      string             `json:"text"`         // Текст сообщения
+	Timestamp int64              `json:"timestamp"`    // Временная метка Unix
+	Room      string             `join:"room"`
+	Users     map[string]*Client // 🔑 username → client
 }
 
 type Room struct {
@@ -26,27 +27,22 @@ type Room struct {
 
 // Hub управляет подключениями, рассылкой сообщений и хранением истории
 type Hub struct {
-	Clients    map[*Client]bool // Все активные клиенты
-	Broadcast  chan ChatMessage // Канал для отправки сообщений всем клиентам
+	Clients      map[*Client]bool // Все активные клиенты
+	Broadcast    chan ChatMessage // Канал для отправки сообщений всем клиентам
 	RegisterCh   chan *Client     // Канал для регистрации нового клиента
 	unregisterCh chan *Client     // Канал для удаления клиента
-	Rooms      map[string]*Room
-	mu         sync.RWMutex // Мьютекс для защиты данных от гонок
-
-	history    []ChatMessage // История последних сообщений
-	maxHistory int           // Максимальный размер истории
+	Rooms        map[string]*Room
+	mu           sync.RWMutex // Мьютекс для защиты данных от гонок
 }
 
 // NewHub создаёт и возвращает новый Hub
 func NewHub() *Hub {
 	return &Hub{
-		Clients:    make(map[*Client]bool),
-		Rooms:      make(map[string]*Room),
-		Broadcast:  make(chan ChatMessage, 128), // Буфер канала для сообщений
+		Clients:      make(map[*Client]bool),
+		Rooms:        make(map[string]*Room),
+		Broadcast:    make(chan ChatMessage, 128), // Буфер канала для сообщений
 		RegisterCh:   make(chan *Client),
 		unregisterCh: make(chan *Client),
-		history:    make([]ChatMessage, 0, 50), // Начальная емкость истории
-		maxHistory: 50,                         // Максимум последних сообщений
 	}
 }
 
@@ -110,16 +106,29 @@ func (chatHub *Hub) Run() {
 
 		// Получено новое сообщение для рассылки
 		case msg := <-chatHub.Broadcast:
-			chatHub.mu.Lock()	
+			chatHub.mu.Lock()
+
+			// Приватное сообщение
+			if msg.To != "" {
+				for client := range chatHub.Clients {
+					if client.Username == msg.To || client.Username == msg.From {
+						select {
+						case client.Send <- msg:
+						default:
+						}
+					}
+				}
+				continue
+			}
+
+			// Сообщение в комнату
 			if room, ok := chatHub.Rooms[msg.Room]; ok {
 				room.Broadcast <- msg
 			}
-			chatHub.mu.Unlock()
+			chatHub.mu.Unlock()	
 		}
 	}
 }
-
-
 
 func (h *Hub) GetRoom(name string) *Room {
 	h.mu.Lock()
@@ -155,7 +164,6 @@ func (r *Room) Run() {
 		}
 	}
 }
-
 
 func (r *Room) OnlineUsers() []string {
 	r.Mu.RLock()
