@@ -63,7 +63,7 @@ func (chatHub *Hub) Run() {
 			room.Mu.RLock()
 			// Отправляем историю сообщений новому клиенту
 			for _, msg := range room.History {
-				client.Send <- msg
+				client.PrivateChan <- msg
 			}
 			room.Mu.RUnlock()
 
@@ -113,7 +113,7 @@ func (chatHub *Hub) Run() {
 				for client := range chatHub.Clients {
 					if client.Username == msg.To || client.Username == msg.From {
 						select {
-						case client.Send <- msg:
+						case client.PrivateChan <- msg:
 						default:
 						}
 					}
@@ -152,7 +152,7 @@ func (r *Room) Run() {
 		r.Mu.RLock()
 		for c := range r.Clients {
 			select {
-			case c.Send <- msg:
+			case c.PrivateChan <- msg:
 			default:
 			}
 		}

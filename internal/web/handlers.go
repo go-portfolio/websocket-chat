@@ -178,7 +178,7 @@ func ChatConnectionHandler(w http.ResponseWriter, r *http.Request) {
 		Hub:      ChatHub,                         //Ссылка на центральный объект Hub
 		Room: room,
 		Conn:     conn,                            //WebSocket-соединение между браузером и сервером
-		Send:     make(chan chat.ChatMessage, 16), //Буферизированный канал для отправки сообщений клиенту
+		PrivateChan:     make(chan chat.ChatMessage, 16), //Буферизированный канал для отправки сообщений клиенту
 		CloseCh:  make(chan struct{}),             //Канал для закрытия клиента
 		Username: username,                        //Имя пользователя, которое пришло из JWT
 	}

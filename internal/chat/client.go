@@ -13,7 +13,7 @@ type Client struct {
 	Hub      *Hub            // Ссылка на Hub для регистрации/рассылки сообщений
 	Room     *Room
 	Conn     *websocket.Conn // WebSocket-соединение клиента
-	Send     chan ChatMessage // Канал для отправки сообщений клиенту
+	PrivateChan     chan ChatMessage // Канал для отправки сообщений клиенту
 	CloseCh  chan struct{}    // Канал для безопасного закрытия клиента
 	Username string           // Имя пользователя
 }
@@ -37,6 +37,8 @@ func (client *Client) ReadSocket() {
 	for {
 		var incoming struct {
 			Text string `json:"text"` // Структура ожидаемого JSON-сообщения
+			To string `json:"to"` // Структура ожидаемого JSON-сообщения
+			Type string `json:"type"` // Структура ожидаемого JSON-сообщения
 		}
 		// Читаем JSON-сообщение
 		if err := client.Conn.ReadJSON(&incoming); err != nil {
@@ -48,9 +50,10 @@ func (client *Client) ReadSocket() {
 
 		// Создаем ChatMessage для Hub
 		msg := ChatMessage{
-			Type:      "message",
+			Type:      strings.TrimSpace(incoming.Type),
 			From:      client.Username,
 			Text:      strings.TrimSpace(incoming.Text),
+			To:      strings.TrimSpace(incoming.To),
 			Room:      client.Room.Name,
 			Timestamp: time.Now().Unix(),
 		}
@@ -63,10 +66,11 @@ func (client *Client) ReadSocket() {
 			// Личное сообщение
 			msg.Type = "private"
 			client.Hub.mu.RLock()
+			//Ищем клиента
 			for client := range client.Hub.Clients {
 				if client.Username == msg.To || client.Username == msg.From {
 					select {
-					case client.Send <- msg:
+					case client.PrivateChan <- msg: //Отправляем клиенту личное сообщение
 					default:
 					}
 				}
@@ -89,7 +93,7 @@ func (client *Client) WriteSocket() {
 
 	for {
 		select {
-		case msg := <-client.Send:
+		case msg := <-client.PrivateChan:
 			// Отправляем сообщение клиенту
 			client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := client.Conn.WriteJSON(msg); err != nil {

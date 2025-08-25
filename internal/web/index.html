@@ -106,6 +106,14 @@
     align-self: flex-end;
   }
 
+  .private {
+    background: #fff3cd;
+    border: 1px solid #ffb74d;
+    color: #444;
+    font-style: italic;
+    align-self: flex-start;
+  }
+
   h2 {
     margin: 0 0 12px 0;
     font-size: 1.2em;
@@ -176,12 +184,14 @@ const messages = $('#messages');
 let ws, username;
 
 // Добавление сообщения
-function addMsg({type, from, text, timestamp}) {
+function addMsg({type, from, text, timestamp, to}) {
   const el = document.createElement('div');
   const time = new Date(timestamp * 1000).toLocaleTimeString();
 
+
   if(type === "private") {
-    el.textContent = `[Приват] ${from} -> ${to}: ${text}`;
+    el.className = 'msg private' + (from === username ? ' me' : '');
+    el.textContent = `🔒 [Приват][${time}] ${from} → ${to}: ${text}`;
   }
   else if(type === 'system') {
     el.className = 'sys';
