@@ -8,71 +8,48 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// WebSocketConn описывает минимальный набор методов websocket.Conn, которые нужны клиенту
-type WebSocketConn interface {
-	ReadJSON(v interface{}) error
-	WriteJSON(v interface{}) error
-	SetReadLimit(limit int64)
-	SetReadDeadline(t time.Time) error
-	SetWriteDeadline(t time.Time) error
-	SetPongHandler(h func(string) error)
-	WriteMessage(messageType int, data []byte) error
-	Close() error
-}
-
-// UserClient описывает поведение клиента в чате
-type UserClient interface {
-	GetUsername() string
-	GetRoomName() string
-	SendMessage(msg ChatMessage) error
-	ReceivePrivateChan() <-chan ChatMessage
-	Close() error
-	PrivateChan() chan ChatMessage
-}
-
 // Client представляет подключенного пользователя
 type Client struct {
 	Hub         *Hub
 	Room        RoomManager
-	Conn        WebSocketConn    // Интерфейс вместо конкретного типа
+	Conn        WebSocketConn
 	privateChan chan ChatMessage
 	CloseCh     chan struct{}
 	Username    string
 }
 
+// NewClient создаёт нового клиента
 func NewClient(hub *Hub, room RoomManager, conn WebSocketConn, username string) *Client {
-    return &Client{
-        Hub:         hub,
-        Room:        room,
-        Conn:        conn,
-        privateChan: make(chan ChatMessage, 16),
-        CloseCh:     make(chan struct{}),
-        Username:    username,
-    }
+	return &Client{
+		Hub:         hub,
+		Room:        room,
+		Conn:        conn,
+		privateChan: make(chan ChatMessage, 16),
+		CloseCh:     make(chan struct{}),
+		Username:    username,
+	}
 }
-
 
 // GetUsername возвращает имя пользователя
 func (c *Client) GetUsername() string {
 	return c.Username
 }
 
-// GetRoomName возвращает имя комнаты, к которой подключен клиент
+// GetRoomName возвращает имя комнаты через интерфейс RoomManager
 func (c *Client) GetRoomName() string {
 	if c.Room != nil {
-		return c.Room.GetName() // теперь через метод интерфейса
+		return c.Room.GetName()
 	}
 	return ""
 }
 
-
-// SendMessage отправляет сообщение клиенту (через PrivateChan)
+// SendMessage отправляет сообщение в приватный канал
 func (c *Client) SendMessage(msg ChatMessage) error {
 	select {
 	case c.privateChan <- msg:
 		return nil
 	default:
-		return nil // или ошибка "канал заполнен"
+		return nil // или можно вернуть ошибку "канал заполнен"
 	}
 }
 
@@ -81,10 +58,10 @@ func (c *Client) ReceivePrivateChan() <-chan ChatMessage {
 	return c.PrivateChan()
 }
 
+// PrivateChan возвращает внутренний канал сообщений
 func (c *Client) PrivateChan() chan ChatMessage {
 	return c.privateChan
 }
-
 
 // Close закрывает соединение и каналы
 func (c *Client) Close() error {
@@ -93,16 +70,16 @@ func (c *Client) Close() error {
 }
 
 // ReadSocket читает сообщения из WebSocket
-func (client *Client) ReadSocket() {
+func (c *Client) ReadSocket() {
 	defer func() {
-		client.Hub.unregisterCh <- client
-		client.Conn.Close()
+		c.Hub.unregisterCh <- c
+		c.Conn.Close()
 	}()
 
-	client.Conn.SetReadLimit(512)
-	client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	client.Conn.SetPongHandler(func(string) error {
-		client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.Conn.SetReadLimit(512)
+	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 
@@ -113,7 +90,7 @@ func (client *Client) ReadSocket() {
 			Type string `json:"type"`
 		}
 
-		if err := client.Conn.ReadJSON(&incoming); err != nil {
+		if err := c.Conn.ReadJSON(&incoming); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("read error: %v", err)
 			}
@@ -122,10 +99,10 @@ func (client *Client) ReadSocket() {
 
 		msg := ChatMessage{
 			Type:      strings.TrimSpace(incoming.Type),
-			From:      client.Username,
+			From:      c.Username,
 			Text:      strings.TrimSpace(incoming.Text),
 			To:        strings.TrimSpace(incoming.To),
-			Room:      client.GetRoomName(),
+			Room:      c.GetRoomName(),
 			Timestamp: time.Now().Unix(),
 		}
 
@@ -135,42 +112,42 @@ func (client *Client) ReadSocket() {
 
 		if msg.To != "" {
 			msg.Type = "private"
-			client.Hub.mu.RLock()
-			for c := range client.Hub.Clients {
-				if c.GetUsername() == msg.To || c.GetUsername() == msg.From {
-					_ = c.SendMessage(msg)
+			c.Hub.mu.RLock()
+			for client := range c.Hub.Clients {
+				if client.GetUsername() == msg.To || client.GetUsername() == msg.From {
+					_ = client.SendMessage(msg)
 				}
 			}
-			client.Hub.mu.RUnlock()
+			c.Hub.mu.RUnlock()
 		} else {
-			client.Room.BroadcastMessage(msg)
+			c.Room.BroadcastMessage(msg)
 		}
 	}
 }
 
-// WriteSocket пишет сообщения из канала клиенту и посылает PING
-func (client *Client) WriteSocket() {
+// WriteSocket пишет сообщения из канала клиенту и отправляет PING
+func (c *Client) WriteSocket() {
 	ticker := time.NewTicker(45 * time.Second)
 	defer func() {
 		ticker.Stop()
-		client.Conn.Close()
+		c.Conn.Close()
 	}()
 
 	for {
 		select {
-		case msg := <-client.privateChan:
-			client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := client.Conn.WriteJSON(msg); err != nil {
+		case msg := <-c.privateChan:
+			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.Conn.WriteJSON(msg); err != nil {
 				return
 			}
 
 		case <-ticker.C:
-			client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 
-		case <-client.CloseCh:
+		case <-c.CloseCh:
 			return
 		}
 	}

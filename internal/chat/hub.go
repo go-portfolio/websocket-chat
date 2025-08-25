@@ -6,134 +6,25 @@ import (
 	"time"
 )
 
-// ----------------------------
-// Сообщение чата
-// ----------------------------
-type ChatMessage struct {
-	Type      string              `json:"type"`
-	From      string              `json:"from"`
-	To        string              `json:"to,omitempty"`
-	Text      string              `json:"text"`
-	Timestamp int64               `json:"timestamp"`
-	Room      string              `json:"room"`
-	Users     map[string]UserClient
-}
-
-// ----------------------------
-// Интерфейс для комнаты
-// ----------------------------
-type RoomManager interface {
-	Run()
-	OnlineUsers() []string
-	AddClient(c UserClient)
-	RemoveClient(c UserClient)
-	BroadcastMessage(msg ChatMessage)
-	GetName() string
-}
-
-// ----------------------------
-// Интерфейс для Hub
-// ----------------------------
-type HubManager interface {
-	Run()
-	RegisterClient(c UserClient)
-	UnregisterClient(c UserClient)
-	Broadcast(msg ChatMessage)
-	GetRoom(name string) RoomManager
-	GetClients() []UserClient
-}
-
-// ----------------------------
-// Реализация комнаты
-// ----------------------------
-type Room struct {
-	Name      string
-	Clients   map[UserClient]bool
-	Broadcast chan ChatMessage
-	History   []ChatMessage
-	Mu        sync.RWMutex
-}
-
-func NewRoom(name string) *Room {
-	return &Room{
-		Name:      name,
-		Clients:   make(map[UserClient]bool),
-		Broadcast: make(chan ChatMessage, 128),
-		History:   make([]ChatMessage, 0, 50),
-	}
-}
-
-func (r *Room) Run() {
-	for msg := range r.Broadcast {
-		r.Mu.RLock()
-		for c := range r.Clients {
-			select {
-			case c.PrivateChan() <- msg:
-			default:
-			}
-		}
-		r.Mu.RUnlock()
-
-		r.History = append(r.History, msg)
-		if len(r.History) > 50 {
-			r.History = r.History[len(r.History)-50:]
-		}
-	}
-}
-
-func (r *Room) OnlineUsers() []string {
-	r.Mu.RLock()
-	defer r.Mu.RUnlock()
-	users := make([]string, 0, len(r.Clients))
-	for c := range r.Clients {
-		users = append(users, c.GetUsername())
-	}
-	return users
-}
-
-func (r *Room) AddClient(c UserClient) {
-	r.Mu.Lock()
-	defer r.Mu.Unlock()
-	r.Clients[c] = true
-}
-
-func (r *Room) RemoveClient(c UserClient) {
-	r.Mu.Lock()
-	defer r.Mu.Unlock()
-	delete(r.Clients, c)
-}
-
-func (r *Room) BroadcastMessage(msg ChatMessage) {
-	r.Broadcast <- msg
-}
-
-func (r *Room) GetName() string {
-	return r.Name
-}
-
-// ----------------------------
-// Hub (менеджер чатов)
-// ----------------------------
 type Hub struct {
 	Clients      map[UserClient]bool
 	RegisterCh   chan UserClient
 	unregisterCh chan UserClient
 	Rooms        map[string]RoomManager
 	mu           sync.RWMutex
-	BroadcastCh chan ChatMessage 
+	BroadcastCh  chan ChatMessage
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		Clients:      make(map[UserClient]bool),
 		Rooms:        make(map[string]RoomManager),
-		BroadcastCh:    make(chan ChatMessage, 128),
+		BroadcastCh:  make(chan ChatMessage, 128),
 		RegisterCh:   make(chan UserClient),
 		unregisterCh: make(chan UserClient),
 	}
 }
 
-// Реализация HubManager
 func (h *Hub) Run() {
 	for {
 		select {
@@ -164,7 +55,6 @@ func (h *Hub) RegisterClient(client UserClient) {
 	}
 
 	room.AddClient(client)
-
 	room.BroadcastMessage(ChatMessage{
 		Type:      "system",
 		From:      client.GetUsername(),
