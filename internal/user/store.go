@@ -1,61 +1,69 @@
 package user
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
-	"sync"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	_ "github.com/lib/pq" // Postgres driver
 )
 
 // Credentials — структура для логина/регистрации
 type Credentials struct {
-    Username string `json:"username"`
-    Password string `json:"password"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
-
-// Store — простое in-memory хранилище пользователей.
-// Использует карту username -> passwordHash и мьютекс для безопасного доступа из разных горутин.
-// ⚠️ В реальных приложениях вместо этого лучше использовать полноценную базу данных (Postgres/MySQL).
+// Store — хранилище пользователей в PostgreSQL
 type Store struct {
-	mu   sync.RWMutex      // RWMutex для конкурентного доступа (чтение/запись из разных горутин)
-	data map[string]string // username -> bcrypt hash пароля
+	db *sql.DB
 }
 
-// NewStore создаёт и возвращает новый пустой Store.
-func NewStore() *Store {
-	return &Store{data: make(map[string]string)}
+// NewStore создаёт новый Store и инициализирует таблицу users
+func NewStore(connStr string) (*Store, error) {
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open db: %w", err)
+	}
+
+	// Проверка соединения
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping db: %w", err)
+	}
+
+	// Создание таблицы (если её ещё нет)
+	schema := `
+	CREATE TABLE IF NOT EXISTS users (
+		id SERIAL PRIMARY KEY,
+		username VARCHAR(24) UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);`
+	if _, err := db.Exec(schema); err != nil {
+		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return &Store{db: db}, nil
 }
 
-// Register регистрирует нового пользователя.
-// 1. Проверяет, что логин и пароль не пустые.
-// 2. Ограничивает длину логина (макс. 24 символа).
-// 3. Блокирует Store на запись, чтобы избежать гонок.
-// 4. Проверяет, что пользователь с таким именем ещё не существует.
-// 5. Хэширует пароль с помощью bcrypt и сохраняет его в Store.
-// Возвращает ошибку, если имя занято, некорректное или при проблемах с хэшированием.
-func (store *Store) Register(username, password string) error {
-	// Убираем пробелы в начале/конце
+// Закрытие соединения
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+// Register регистрирует нового пользователя
+func (s *Store) Register(username, password string) error {
 	username = strings.TrimSpace(username)
 
-	// Проверяем, что логин и пароль заданы
 	if username == "" || password == "" {
 		return fmt.Errorf("username and password are required")
 	}
 
-	// Ограничиваем максимальную длину логина
 	if len(username) > 24 {
 		return fmt.Errorf("username too long (max 24)")
-	}
-
-	// Блокируем Store для записи
-	store.mu.Lock()
-	defer store.mu.Unlock()
-
-	// Проверяем, что пользователя с таким именем ещё нет
-	if _, exists := store.data[username]; exists {
-		return fmt.Errorf("username already exists")
 	}
 
 	// Хэшируем пароль
@@ -64,24 +72,29 @@ func (store *Store) Register(username, password string) error {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Сохраняем хэш в хранилище
-	store.data[username] = string(hash)
+	// Пытаемся вставить пользователя
+	query := `INSERT INTO users (username, password_hash, created_at) VALUES ($1, $2, $3)`
+	_, err = s.db.Exec(query, username, string(hash), time.Now())
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") {
+			return fmt.Errorf("username already exists")
+		}
+		return fmt.Errorf("failed to insert user: %w", err)
+	}
+
 	return nil
 }
 
-// Authenticate проверяет логин и пароль пользователя.
-// 1. Ищет пользователя в Store по имени.
-// 2. Если не найден — возвращает false.
-// 3. Сравнивает переданный пароль с сохранённым bcrypt-хэшем.
-// Возвращает true, если пароль совпадает, иначе false.
-func (store *Store) Authenticate(username, password string) bool {
-	// Блокируем Store для чтения (несколько горутин могут читать параллельно)
-	store.mu.RLock()
-	hash, ok := store.data[username]
-	store.mu.RUnlock()
+// Authenticate проверяет логин и пароль
+func (s *Store) Authenticate(username, password string) bool {
+	var hash string
 
-	// Если пользователя нет
-	if !ok {
+	query := `SELECT password_hash FROM users WHERE username=$1`
+	err := s.db.QueryRow(query, username).Scan(&hash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false
+		}
 		return false
 	}
 

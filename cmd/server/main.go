@@ -9,23 +9,40 @@ import (
 	"github.com/go-portfolio/websocket-chat/internal/chat"
 	"github.com/go-portfolio/websocket-chat/internal/user"
 	"github.com/go-portfolio/websocket-chat/internal/web"
+	"github.com/go-portfolio/websocket-chat/config"
+
+	"github.com/joho/godotenv"
 )
 
-// Минимальный фронт (можно вынести в отдельный файл web/index.html)
-const indexHTML = `<!doctype html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>Go WebSocket Chat</title></head>
-<body>
-<h1>Go WebSocket Chat</h1>
-<p>Use browser console or build a JS client to test /ws</p>
-</body></html>`
-
 func main() {
+		// Локально читаем .env, в продакшене переменные берутся из окружения
+	_ = godotenv.Load("../../.env")
+	// Загружаем конфигурацию
+	cfg := config.Load()
+
+	// Создаём user store (Postgres)
+	store, err := user.NewStore(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("failed to init user store: %v", err)
+	}
+	defer store.Close() // не забудь закрыть соединение с БД
+
+	// тест: регистрация
+	if err := store.Register("alex", "12345"); err != nil {
+		log.Println("register error:", err)
+	} else {
+		log.Println("user alex registered")
+	}
+
+	// тест: авторизация
+	ok := store.Authenticate("alex", "12345")
+	log.Println("auth success?", ok)
+	
 	// =========================
 	// Инициализация глобальных сервисов
 	// =========================
 	web.ChatHub = chat.NewHub() // Создаем Hub чата для управления подключениями и рассылкой
-	web.Users = user.NewStore() // Создаем хранилище пользователей (in-memory)
+	web.Users = store // Создаем хранилище пользователей
 
 	// Инициализация JWT-секрета
 	secret := os.Getenv("JWT_SECRET") // Берем из переменной окружения

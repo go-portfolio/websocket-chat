@@ -12,4 +12,12 @@ go run cmd/server/main.go
 
 demo-сценарий (регистрация → вход → чат)
 
+Создание Баз Данных:
+sudo -u postgres psql
+
+
+CREATE DATABASE chatapp;
+CREATE USER chatuser WITH PASSWORD 'secret';
+GRANT ALL PRIVILEGES ON DATABASE chatapp TO chatuser;
+
 
