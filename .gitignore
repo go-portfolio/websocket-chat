@@ -1,2 +1,3 @@
 # Go debug binaries
 __debug_bin*
+/uploads/*

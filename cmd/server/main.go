@@ -27,9 +27,6 @@ func main() {
 	}
 	defer store.Close() // не забудь закрыть соединение с БД
 
-	// тест: авторизация
-	ok := store.Authenticate("alex", "12345")
-	log.Println("auth success?", ok)
 	
 	// =========================
 	// Инициализация глобальных сервисов
@@ -68,7 +65,7 @@ func main() {
 	mux.Handle("/ws", web.AuthMiddleware(http.HandlerFunc(web.ChatConnectionHandler)))
 
 	// Раздача файлов (аватары)
-	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("../../uploads"))))
 	
 	// =========================
 	// Запуск сервера

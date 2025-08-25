@@ -72,10 +72,10 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		defer file.Close()
 
 		// создаём папку, если нет
-		os.MkdirAll("uploads", os.ModePerm)
+		os.MkdirAll("../../uploads", os.ModePerm)
 
 		// уникальное имя
-		filename := fmt.Sprintf("uploads/%d_%s", time.Now().Unix(), handler.Filename)
+		filename := fmt.Sprintf("../../uploads/%d_%s", time.Now().Unix(), handler.Filename)
 		dst, err := os.Create(filename)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -90,7 +90,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		avatarURL = "/" + filename // путь для фронтенда
+		avatarURL = fmt.Sprintf("/uploads/%d_%s", time.Now().Unix(), handler.Filename)
 	}
 
 	// Регистрируем пользователя в Users
