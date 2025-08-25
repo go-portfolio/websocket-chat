@@ -30,10 +30,6 @@ func NewStore(connStr string) (*Store, error) {
 		return nil, fmt.Errorf("failed to ping db: %w", err)
 	}
 
-	if err := runMigrations(db); err != nil {
-		return nil, err
-	}
-
 	return &Store{db: db}, nil
 }
 
