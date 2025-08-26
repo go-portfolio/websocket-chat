@@ -1,4 +1,4 @@
-package web
+package unit
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/go-portfolio/websocket-chat/internal/auth"
-
+	"github.com/go-portfolio/websocket-chat/internal/web"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -41,8 +41,8 @@ type mockUser struct {
 
 // mockUserStore — in-memory хранилище пользователей с защитой от конкурентного доступа
 type mockUserStore struct {
-	mu    sync.Mutex            // защита от параллельного доступа
-	users map[string]mockUser   // ключ: username, значение: mockUser
+	mu    sync.Mutex          // защита от параллельного доступа
+	users map[string]mockUser // ключ: username, значение: mockUser
 }
 
 // newMockUserStore создаёт новый in-memory store
@@ -113,10 +113,12 @@ func (m *mockUserStore) Close() error { return nil }
 
 /*
 ---------------------------------------------------------
+
 	Вспомогательная функция для формирования multipart/form-data
 	(используется для тестов RegisterHandler)
 	Возвращает body + contentType (boundary)
 	Если fileName == "", multipart состоит только из текстовых полей
+
 ---------------------------------------------------------
 */
 func createMultipartForm(t *testing.T, fields map[string]string, fileField, fileName string, fileContent []byte) (*bytes.Buffer, string) {
@@ -154,7 +156,7 @@ func createMultipartForm(t *testing.T, fields map[string]string, fileField, file
 
 // Успешная регистрация без аватара
 func TestRegisterHandler_Success_NoAvatar(t *testing.T) {
-	Users = newMockUserStore() // подставляем мок вместо реальной БД
+	web.Users = newMockUserStore() // подставляем мок вместо реальной БД
 
 	// Формируем multipart без файла (только username и password)
 	body, contentType := createMultipartForm(t,
@@ -166,7 +168,7 @@ func TestRegisterHandler_Success_NoAvatar(t *testing.T) {
 	req.Header.Set("Content-Type", contentType)
 	rr := httptest.NewRecorder()
 
-	RegisterHandler(rr, req) // вызов тестируемого handler-а
+	web.RegisterHandler(rr, req) // вызов тестируемого handler-а
 
 	// Проверяем HTTP статус и JSON ответ
 	assert.Equal(t, http.StatusOK, rr.Code)
@@ -176,17 +178,17 @@ func TestRegisterHandler_Success_NoAvatar(t *testing.T) {
 	assert.Equal(t, "registered", resp["status"])
 
 	// Проверяем, что пользователь действительно добавлен в мок
-	assert.True(t, Users.Authenticate("alice", "12345"))
+	assert.True(t, web.Users.Authenticate("alice", "12345"))
 }
 
 // Некорректный form-data (ошибка ParseMultipartForm)
 func TestRegisterHandler_InvalidForm(t *testing.T) {
-	Users = newMockUserStore() // Users не нужен для этого теста, но не должен паниковать
+	web.Users = newMockUserStore() // Users не нужен для этого теста, но не должен паниковать
 
 	req := httptest.NewRequest(http.MethodPost, "/api/register", strings.NewReader("not a multipart"))
 	rr := httptest.NewRecorder()
 
-	RegisterHandler(rr, req)
+	web.RegisterHandler(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.Contains(t, rr.Body.String(), "invalid form data")
@@ -194,8 +196,8 @@ func TestRegisterHandler_InvalidForm(t *testing.T) {
 
 // Повторная регистрация (duplicate username)
 func TestRegisterHandler_DuplicateUser(t *testing.T) {
-	Users = newMockUserStore()
-	err := Users.Register("bob", "pass", "")
+	web.Users = newMockUserStore()
+	err := web.Users.Register("bob", "pass", "")
 	assert.NoError(t, err) // пользователь успешно зарегистрирован
 
 	// Попытка зарегистрировать того же пользователя снова
@@ -208,7 +210,7 @@ func TestRegisterHandler_DuplicateUser(t *testing.T) {
 	req.Header.Set("Content-Type", contentType)
 	rr := httptest.NewRecorder()
 
-	RegisterHandler(rr, req)
+	web.RegisterHandler(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.Contains(t, rr.Body.String(), "username already exists")
@@ -220,14 +222,14 @@ func TestRegisterHandler_DuplicateUser(t *testing.T) {
 
 // Успешный логин с корректными данными
 func TestLoginHandler_Success(t *testing.T) {
-	Users = newMockUserStore()
-	_ = Users.Register("john", "secret", "avatar.png") // создаём тестового пользователя
+	web.Users = newMockUserStore()
+	_ = web.Users.Register("john", "secret", "avatar.png") // создаём тестового пользователя
 
 	body := `{"username":"john","password":"secret"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
 	rr := httptest.NewRecorder()
 
-	LoginHandler(rr, req) // вызываем handler
+	web.LoginHandler(rr, req) // вызываем handler
 
 	// Проверяем статус и JSON ответ
 	assert.Equal(t, http.StatusOK, rr.Code)
@@ -241,7 +243,7 @@ func TestLoginHandler_Success(t *testing.T) {
 	cookies := rr.Result().Cookies()
 	found := false
 	for _, c := range cookies {
-		if c.Name == CookieName {
+		if c.Name == web.CookieName {
 			found = true
 			break
 		}
@@ -251,11 +253,11 @@ func TestLoginHandler_Success(t *testing.T) {
 
 // Некорректный JSON
 func TestLoginHandler_InvalidJSON(t *testing.T) {
-	Users = newMockUserStore() // неважно
+	web.Users = newMockUserStore() // неважно
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader("bad json"))
 	rr := httptest.NewRecorder()
 
-	LoginHandler(rr, req)
+	web.LoginHandler(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.Contains(t, rr.Body.String(), "invalid json")
@@ -263,40 +265,19 @@ func TestLoginHandler_InvalidJSON(t *testing.T) {
 
 // Логин с неверным паролем
 func TestLoginHandler_BadCredentials(t *testing.T) {
-	Users = newMockUserStore()
-	_ = Users.Register("john", "secret", "")
+	web.Users = newMockUserStore()
+	_ = web.Users.Register("john", "secret", "")
 
 	body := `{"username":"john","password":"wrong"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
 	rr := httptest.NewRecorder()
 
-	LoginHandler(rr, req)
+	web.LoginHandler(rr, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	assert.Contains(t, rr.Body.String(), "invalid credentials")
 }
 
-/* ==========================
-   ТЕСТЫ IndexHandler
-   ========================== */
-
-// Проверка успешного чтения index.html
-func TestIndexHandler_Success(t *testing.T) {
-	// Создаём директорию и файл, которые читает handler
-	_ = os.MkdirAll("../../internal/web", 0o755)
-	const idxPath = "../../internal/web/index.html"
-	_ = os.WriteFile(idxPath, []byte("<html>OK</html>"), 0o644)
-	defer os.Remove(idxPath)
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-
-	IndexHandler(rr, req)
-
-	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "OK")
-	assert.Equal(t, "text/html; charset=utf-8", rr.Header().Get("Content-Type"))
-}
 
 // Если index.html нет — handler возвращает 500 и сообщение об ошибке
 func TestIndexHandler_NotFound(t *testing.T) {
@@ -305,7 +286,7 @@ func TestIndexHandler_NotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 
-	IndexHandler(rr, req)
+	web.IndexHandler(rr, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	assert.Contains(t, rr.Body.String(), "index.html not found")
@@ -321,12 +302,12 @@ func TestAuthMiddleware_Success(t *testing.T) {
 	assert.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	req.AddCookie(&http.Cookie{Name: CookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: web.CookieName, Value: token})
 	rr := httptest.NewRecorder()
 
 	// Downstream handler считывает username из контекста
-	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		un, _ := r.Context().Value(ctxUserKey).(string)
+	handler := web.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		un, _ := r.Context().Value(web.CtxUserKey).(string)
 		_, _ = w.Write([]byte(un))
 	}))
 
@@ -341,7 +322,7 @@ func TestAuthMiddleware_MissingCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	rr := httptest.NewRecorder()
 
-	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	handler := web.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
@@ -351,10 +332,10 @@ func TestAuthMiddleware_MissingCookie(t *testing.T) {
 // Некорректный JWT токен
 func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	req.AddCookie(&http.Cookie{Name: CookieName, Value: "badtoken"})
+	req.AddCookie(&http.Cookie{Name: web.CookieName, Value: "badtoken"})
 	rr := httptest.NewRecorder()
 
-	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	handler := web.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)

@@ -10,8 +10,7 @@ import (
 
 type ctxKey string
 
-const ctxUserKey ctxKey = "user"
-
+const CtxUserKey ctxKey = "user"
 
 // =========================
 // AuthMiddleware проверяет cookie JWT
@@ -32,7 +31,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), ctxUserKey, userName)
+		ctx := context.WithValue(r.Context(), CtxUserKey, userName)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

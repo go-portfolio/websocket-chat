@@ -13,9 +13,9 @@ import (
 // Глобальные переменные (можно инжектировать в main.go)
 // =========================
 var (
-	ChatHub    *chat.Hub   // Ссылка на Hub чата
+	ChatHub    *chat.Hub      // Ссылка на Hub чата
 	Users      user.UserStore // Хранилище пользователей
-	CookieName = "auth"    // Имя cookie для хранения JWT
+	CookieName = "auth"       // Имя cookie для хранения JWT
 )
 
 var upgrader = websocket.Upgrader{
@@ -30,7 +30,7 @@ var upgrader = websocket.Upgrader{
 // ChatConnectionHandler
 // =========================
 func ChatConnectionHandler(w http.ResponseWriter, r *http.Request) {
-	username, _ := r.Context().Value(ctxUserKey).(string)
+	username, _ := r.Context().Value(CtxUserKey).(string)
 	if username == "" {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
