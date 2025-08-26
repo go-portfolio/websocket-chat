@@ -14,7 +14,7 @@ import (
 // =========================
 var (
 	ChatHub    *chat.Hub   // Ссылка на Hub чата
-	Users      *user.Store // Хранилище пользователей
+	Users      user.UserStore // Хранилище пользователей
 	CookieName = "auth"    // Имя cookie для хранения JWT
 )
 

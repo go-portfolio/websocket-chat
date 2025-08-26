@@ -31,7 +31,7 @@ func (s *Store) Register(username, password, avatar string) error {
 	}
 
 	query := `INSERT INTO users (username, password_hash, created_at, avatar) VALUES ($1, $2, $3, $4)`
-	_, err = s.db.Exec(query, username, string(hash), time.Now(), avatarValue)
+	_, err = s.Db.Exec(query, username, string(hash), time.Now(), avatarValue)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") {
 			return fmt.Errorf("username already exists")
@@ -45,7 +45,7 @@ func (s *Store) Register(username, password, avatar string) error {
 func (s *Store) Authenticate(username, password string) bool {
 	var hash string
 	query := `SELECT password_hash FROM users WHERE username=$1`
-	err := s.db.QueryRow(query, username).Scan(&hash)
+	err := s.Db.QueryRow(query, username).Scan(&hash)
 	if err != nil {
 		return false
 	}
@@ -53,7 +53,7 @@ func (s *Store) Authenticate(username, password string) bool {
 }
 
 func (s *Store) GetAvatar(username string) string {
-	row := s.db.QueryRow(`SELECT avatar FROM users WHERE username=$1`, username)
+	row := s.Db.QueryRow(`SELECT avatar FROM users WHERE username=$1`, username)
 	var avatar string
 	_ = row.Scan(&avatar)
 	return avatar

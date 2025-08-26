@@ -16,7 +16,7 @@ type UserStore interface {
 }
 
 type Store struct {
-	db *sql.DB
+	Db *sql.DB
 }
 
 var _ UserStore = (*Store)(nil)
@@ -30,9 +30,9 @@ func NewStore(connStr string) (*Store, error) {
 		return nil, fmt.Errorf("failed to ping db: %w", err)
 	}
 
-	return &Store{db: db}, nil
+	return &Store{Db: db}, nil
 }
 
 func (s *Store) Close() error {
-	return s.db.Close()
+	return s.Db.Close()
 }
