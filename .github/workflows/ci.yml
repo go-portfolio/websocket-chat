@@ -1,0 +1,51 @@
+name: Go CI/CD
+
+on:
+  push:
+    branches: [main]   # запускать на пуш в main
+  pull_request:
+    branches: [main]   # запускать на PR в main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Проверка кода из репозитория
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # 2. Устанавливаем Go
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: 1.24
+
+    # 3. Кэшируем зависимости
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    # 4. Загружаем зависимости
+    - name: Install dependencies
+      run: go mod download
+    
+    # 5. Линтинг
+    - name: Run linters
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.59.0
+        golangci-lint run ./...
+
+    # 6. Code formatting check
+    - name: Check code formatting
+      run: go fmt ./...
+
+    # 7. Запуск всех unit-тестов
+    - name: Run tests
+      run: go test -v ./...
