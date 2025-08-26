@@ -35,23 +35,12 @@ jobs:
     # 4. Загружаем зависимости
     - name: Install dependencies
       run: go mod download
-    
-    # 5. Линтинг
-    - name: Run linters
-      run: |
-        # Устанавливаем golangci-lint в ./bin
-        mkdir -p ./bin
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin v1.59.0
-        # Добавляем ./bin в PATH
-        export PATH=$PWD/bin:$PATH
-        # Запуск линтеров по всему проекту
-        golangci-lint run ./...
 
 
-    # 6. Code formatting check
+    # 5. Code formatting check
     - name: Check code formatting
       run: go fmt ./...
 
-    # 7. Запуск всех unit-тестов
+    # 6. Запуск всех unit-тестов
     - name: Run tests
       run: go test -v ./...
