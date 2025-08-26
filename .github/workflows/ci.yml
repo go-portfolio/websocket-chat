@@ -39,8 +39,14 @@ jobs:
     # 5. Линтинг
     - name: Run linters
       run: |
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.59.0
+        # Устанавливаем golangci-lint в ./bin
+        mkdir -p ./bin
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin v1.59.0
+        # Добавляем ./bin в PATH
+        export PATH=$PWD/bin:$PATH
+        # Запуск линтеров по всему проекту
         golangci-lint run ./...
+
 
     # 6. Code formatting check
     - name: Check code formatting
