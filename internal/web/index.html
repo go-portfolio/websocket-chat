@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Go WebSocket Чат</title>
+    <style>
+      /* ===== Общие стили ===== */
+      body {
+        font-family: "Segoe UI", sans-serif;
+        margin: 0;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: 100vh;
+        background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
+        color: #333;
+      }
+
+      header {
+        padding: 16px 24px;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(5px);
+        border-bottom: 2px solid #4c8;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        font-weight: bold;
+        font-size: 1.2em;
+      }
+
+      main {
+        padding: 16px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(10px);
+      }
+
+      footer {
+        padding: 12px 24px;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(5px);
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        border-top: 2px solid #4c8;
+        box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      input,
+      button,
+      select {
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: none;
+        outline: none;
+        font-size: 1em;
+        transition: 0.2s;
+      }
+
+      input:focus,
+      select:focus {
+        box-shadow: 0 0 8px #4c8;
+      }
+
+      button {
+        background: #4c8;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+      }
+
+      button:hover {
+        background: #3a6;
+      }
+
+      #messages {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .msg,
+      .sys {
+        padding: 10px 14px;
+        border-radius: 16px;
+        max-width: 70%;
+        word-wrap: break-word;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        animation: fadeIn 0.3s ease-in-out;
+      }
+
+      .sys {
+        font-style: italic;
+        opacity: 0.7;
+        background: #f0f0f0;
+        align-self: center;
+      }
+
+      .msg {
+        background: rgba(255, 255, 255, 0.85);
+      }
+
+      .me {
+        background: #4c8;
+        color: white;
+        align-self: flex-end;
+      }
+
+      .private {
+        background: #fff3cd;
+        border: 1px solid #ffb74d;
+        color: #444;
+        font-style: italic;
+        align-self: flex-start;
+      }
+
+      h2 {
+        margin: 0 0 12px 0;
+        font-size: 1.2em;
+        text-align: center;
+        color: #fff;
+        text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
+      }
+
+      form {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        flex: 1;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span>Go WebSocket Чат</span>
+      <span id="who"></span>
+    </header>
+
+    <main>
+      <h2 id="roomName"></h2>
+      <div id="messages"></div>
+    </main>
+
+    <footer>
+      <!-- Форма авторизации -->
+      <form id="auth">
+        <input
+          id="username"
+          placeholder="Имя пользователя"
+          maxlength="24"
+          required
+        />
+        <input id="password" type="password" placeholder="Пароль" required />
+        <input id="avatar" type="file" accept="image/*" />
+        <select id="room">
+          <option value="default">Основная</option>
+          <option value="sports">Спортивная</option>
+          <option value="music">Музыка</option>
+          <option value="movies">Фильмы</option>
+          <option value="tech">Технологии</option>
+          <option value="games">Игры</option>
+          <option value="travel">Путешествия</option>
+          <option value="random">Болталка</option>
+        </select>
+        <button type="submit">Войти</button>
+        <button type="button" id="register">Регистрация</button>
+      </form>
+
+      <!-- Форма чата -->
+      <form id="chat" style="display: none">
+        <input id="text" placeholder="Введите сообщение..." />
+        <input id="to" placeholder="Кому (необязательно)" />
+        <button type="submit">Отправить</button>
+        <button type="button" id="logout">Выйти</button>
+      </form>
+    </footer>
+
+    <script>
+      const $ = (s) => document.querySelector(s);
+      const who = $("#who");
+      const authForm = $("#auth");
+      const chatForm = $("#chat");
+      const messages = $("#messages");
+      let ws, username;
+
+      // Добавление сообщения
+      function addMsg({ type, from, text, timestamp, to }) {
+        const el = document.createElement("div");
+        const time = new Date(timestamp * 1000).toLocaleTimeString();
+
+        if (type === "private") {
+          el.className = "msg private" + (from === username ? " me" : "");
+          el.textContent = `🔒 [Приват][${time}] ${from} → ${to}: ${text}`;
+        } else if (type === "system") {
+          el.className = "sys";
+          el.textContent = `[Система][${time}] ${from} ${text}`;
+        } else {
+          el.className = "msg" + (from === username ? " me" : "");
+          el.textContent = `[${time}] ${from}: ${text}`;
+        }
+
+        messages.appendChild(el);
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      // Регистрация
+      async function registerUser(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        formData.append("username", $("#username").value.trim());
+        formData.append("password", $("#password").value);
+
+        const file = $("#avatar").files[0];
+        if (file) formData.append("avatar", file);
+        const res = await fetch("/api/register", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) return alert(data.error || "Ошибка регистрации");
+        alert("Вы зарегистрированы! Теперь войдите.");
+      }
+
+      // Логин
+      async function login(e) {
+        e.preventDefault();
+        username = $("#username").value.trim();
+        const body = { username, password: $("#password").value };
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) return alert(data.error || "Ошибка входа");
+        if (!res.avatar) {
+          who.innerHTML = `Вы вошли как @${username} <img src="${data.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;">`;
+        } else {
+          who.textContent = `Вы вошли как @${username}`;
+        }
+
+        authForm.style.display = "none";
+        chatForm.style.display = "flex";
+        connectWS();
+      }
+
+      // WebSocket подключение
+      function connectWS() {
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        const room = $("#room").value;
+        document.getElementById("roomName").textContent = `Комната: ${room}`;
+        ws = new WebSocket(`${proto}://${location.host}/ws?room=${room}`);
+        ws.onmessage = (ev) => addMsg(JSON.parse(ev.data));
+        ws.onclose = () => console.log("Соединение закрыто");
+      }
+
+      // События форм
+      authForm.addEventListener("submit", login);
+      $("#register").addEventListener("click", registerUser);
+
+      chatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = $("#text").value.trim();
+        const to = $("#to").value;
+        if (!text) return;
+        ws.send(JSON.stringify({ type: to ? "private" : "message", text, to }));
+        $("#text").value = "";
+      });
+
+      $("#logout").addEventListener("click", () => {
+        document.cookie = "auth=; Max-Age=0; path=/";
+        who.textContent = "";
+        chatForm.style.display = "none";
+        authForm.style.display = "flex";
+        messages.innerHTML = "";
+        if (ws) ws.close();
+      });
+    </script>
+  </body>
+</html>
