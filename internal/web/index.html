@@ -133,6 +133,37 @@
         flex: 1;
       }
 
+      /* ==== Красивые поля ввода ==== */
+      .input-group {
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        flex: 1;
+        min-width: 140px;
+      }
+
+      .input-group label {
+        font-size: 0.8em;
+        margin-bottom: 4px;
+        color: #333;
+        font-weight: 600;
+      }
+
+      .input-group input,
+      .input-group select {
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid #ccc;
+        background: #fff;
+        transition: 0.2s;
+      }
+
+      .input-group input:focus,
+      .input-group select:focus {
+        border-color: #4c8;
+        box-shadow: 0 0 8px rgba(76, 200, 140, 0.6);
+      }
+
       @keyframes fadeIn {
         from {
           opacity: 0;
@@ -159,32 +190,50 @@
     <footer>
       <!-- Форма авторизации -->
       <form id="auth">
-        <input
-          id="username"
-          placeholder="Имя пользователя"
-          maxlength="24"
-          required
-        />
-        <input id="password" type="password" placeholder="Пароль" required />
-        <input id="avatar" type="file" accept="image/*" />
-        <select id="room">
-          <option value="default">Основная</option>
-          <option value="sports">Спортивная</option>
-          <option value="music">Музыка</option>
-          <option value="movies">Фильмы</option>
-          <option value="tech">Технологии</option>
-          <option value="games">Игры</option>
-          <option value="travel">Путешествия</option>
-          <option value="random">Болталка</option>
-        </select>
+        <div class="input-group">
+          <label for="username">Имя пользователя</label>
+          <input
+            id="username"
+            placeholder="Введите имя"
+            maxlength="24"
+            required
+          />
+        </div>
+        <div class="input-group">
+          <label for="password">Пароль</label>
+          <input id="password" type="password" placeholder="Введите пароль" required />
+        </div>
+        <div class="input-group">
+          <label for="avatar">Аватар</label>
+          <input id="avatar" type="file" accept="image/*" />
+        </div>
+        <div class="input-group">
+          <label for="room">Комната</label>
+          <select id="room">
+            <option value="default">Основная</option>
+            <option value="sports">Спортивная</option>
+            <option value="music">Музыка</option>
+            <option value="movies">Фильмы</option>
+            <option value="tech">Технологии</option>
+            <option value="games">Игры</option>
+            <option value="travel">Путешествия</option>
+            <option value="random">Болталка</option>
+          </select>
+        </div>
         <button type="submit">Войти</button>
         <button type="button" id="register">Регистрация</button>
       </form>
 
       <!-- Форма чата -->
       <form id="chat" style="display: none">
-        <input id="text" placeholder="Введите сообщение..." />
-        <input id="to" placeholder="Кому (необязательно)" />
+        <div class="input-group" style="flex:2">
+          <label for="text">Сообщение</label>
+          <input id="text" placeholder="Введите сообщение..." />
+        </div>
+        <div class="input-group">
+          <label for="to">Кому</label>
+          <input id="to" placeholder="Необязательно" />
+        </div>
         <button type="submit">Отправить</button>
         <button type="button" id="logout">Выйти</button>
       </form>
